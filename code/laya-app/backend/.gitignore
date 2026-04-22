@@ -1,0 +1,16 @@
+# dependencies
+node_modules
+
+# environment variables
+.env
+
+# uploaded files (images, etc.)
+uploads
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS/system files
+.DS_Store
