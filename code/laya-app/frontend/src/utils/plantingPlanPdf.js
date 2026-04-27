@@ -22,7 +22,16 @@ function computeRowLength(plantsPerRow, plantSpacing) {
   return ((plants - 1) * spacing).toFixed(2);
 }
 
-function buildColumnStyles(repCount) {
+function buildColumnStyles(repCount, isCRD) {
+  if (isCRD) {
+    return {
+      0: { cellWidth: 20 },
+      1: { cellWidth: 45 },
+      2: { cellWidth: 55, halign: "center" },
+      3: { cellWidth: 45 },
+    };
+  }
+
   const styles = {
     0: { cellWidth: 20 },
     1: { cellWidth: 34 },
@@ -46,6 +55,8 @@ export function downloadPlantingPlanPdf(reportData) {
 
   const { experiment, trials } = reportData;
   const repCount = Number(experiment.replications_per_trial || 0);
+  const isCRD = experiment.design_type === "CRD";
+
   const rowLength = computeRowLength(
     experiment.plants_per_row,
     experiment.plant_spacing
@@ -59,8 +70,10 @@ export function downloadPlantingPlanPdf(reportData) {
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+
   const left = 14;
   const right = 14;
+
   const themeGreen = [31, 122, 99];
   const darkText = [30, 41, 59];
   const lightRow = [244, 248, 246];
@@ -114,21 +127,34 @@ export function downloadPlantingPlanPdf(reportData) {
     );
     y += 8;
 
-    const head = [
-      [
-        "Entry No.",
-        "Variety",
-        ...Array.from({ length: repCount }, (_, i) => `Rep ${i + 1}`),
-        "Remarks",
-      ],
-    ];
+    const head = isCRD
+      ? [["Entry No.", "Variety", "Plot Numbers", "Remarks"]]
+      : [
+          [
+            "Entry No.",
+            "Variety",
+            ...Array.from({ length: repCount }, (_, i) => `Rep ${i + 1}`),
+            "Remarks",
+          ],
+        ];
 
-    const body = (trial.rows || []).map((row) => [
-      row.entry_no,
-      row.variety_name,
-      ...Array.from({ length: repCount }, (_, i) => row.reps?.[i + 1] || ""),
-      row.remarks || "",
-    ]);
+    const body = (trial.rows || []).map((row) => {
+      if (isCRD) {
+        return [
+          row.entry_no,
+          row.variety_name,
+          row.plot_numbers?.join(", ") || "",
+          row.remarks || "",
+        ];
+      }
+
+      return [
+        row.entry_no,
+        row.variety_name,
+        ...Array.from({ length: repCount }, (_, i) => row.reps?.[i + 1] || ""),
+        row.remarks || "",
+      ];
+    });
 
     autoTable(doc, {
       startY: y + 2,
@@ -137,7 +163,7 @@ export function downloadPlantingPlanPdf(reportData) {
       margin: { left, right, bottom: 16 },
       styles: {
         font: "helvetica",
-        fontSize: repCount <= 4 ? 10 : repCount <= 6 ? 9 : 8,
+        fontSize: isCRD ? 10 : repCount <= 4 ? 10 : repCount <= 6 ? 9 : 8,
         cellPadding: 3,
         textColor: darkText,
         lineColor: [220, 225, 223],
@@ -156,8 +182,8 @@ export function downloadPlantingPlanPdf(reportData) {
       bodyStyles: {
         fillColor: whiteRow,
       },
-      columnStyles: buildColumnStyles(repCount),
-      didDrawPage: (data) => {
+      columnStyles: buildColumnStyles(repCount, isCRD),
+      didDrawPage: () => {
         doc.setDrawColor(...themeGreen);
         doc.setLineWidth(0.5);
         doc.line(left, 10, pageWidth - right, 10);

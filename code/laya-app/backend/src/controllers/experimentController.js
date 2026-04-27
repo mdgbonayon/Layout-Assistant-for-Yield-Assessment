@@ -419,14 +419,26 @@ async function generateLayout(req, res) {
         for (let i = 0; i < replication.assignments.length; i++) {
           const assignment = replication.assignments[i];
 
-          const plotNo = i + 1;
-          const plotRow = Math.floor(i / builtLayout.plotsAcross) + 1;
+          const plotsPerReplication =
+            Number(builtLayout.plotsAcross) * Number(builtLayout.plotRowsDown);
+
+          const localPlotRow = Math.floor(i / builtLayout.plotsAcross) + 1;
           const rawCol = i % builtLayout.plotsAcross;
 
-          const plotCol =
-            plotRow % 2 === 0
-              ? builtLayout.plotsAcross - rawCol
-              : rawCol + 1;
+          const plotCol = rawCol + 1;
+
+          const localSnakePlotNo =
+            localPlotRow % 2 === 0
+              ? (localPlotRow - 1) * builtLayout.plotsAcross +
+                (builtLayout.plotsAcross - rawCol)
+              : (localPlotRow - 1) * builtLayout.plotsAcross +
+                (rawCol + 1);
+
+          const plotNo =
+            (Number(replication.replicationNo) - 1) * plotsPerReplication +
+            localSnakePlotNo;
+
+          const plotRow = localPlotRow;
 
           await client.query(
             `INSERT INTO plot_assignments
@@ -931,32 +943,71 @@ async function getPlantingPlanReport(req, res) {
          FROM plot_assignments pa
          JOIN varieties v ON pa.variety_id = v.id
          WHERE pa.layout_id = $1
-         ORDER BY v.entry_no ASC, pa.replication_no ASC`,
+         ORDER BY v.entry_no ASC, pa.replication_no ASC, pa.plot_no ASC`,
         [layout.id]
       );
 
-      const groupedByEntry = {};
+      let plantingRows = [];
 
-      for (const row of assignmentsResult.rows) {
-        if (!groupedByEntry[row.entry_no]) {
-          groupedByEntry[row.entry_no] = {
-            entry_no: row.entry_no,
-            variety_name: row.variety_name,
-            remarks: row.remarks || "",
-            reps: {},
-          };
+      if (experiment.design_type === "CRD") {
+        const groupedByEntry = {};
+
+        for (const row of assignmentsResult.rows) {
+          if (!groupedByEntry[row.entry_no]) {
+            groupedByEntry[row.entry_no] = {
+              entry_no: row.entry_no,
+              variety_id: row.variety_id,
+              variety_name: row.variety_name,
+              remarks: row.remarks || "",
+              plot_numbers: [],
+              reps: {},
+            };
+          }
+
+          groupedByEntry[row.entry_no].plot_numbers.push(row.plot_no);
+
+          if (!groupedByEntry[row.entry_no].reps[row.replication_no]) {
+            groupedByEntry[row.entry_no].reps[row.replication_no] = [];
+          }
+
+          groupedByEntry[row.entry_no].reps[row.replication_no].push(row.plot_no);
+
+          if (!groupedByEntry[row.entry_no].remarks && row.remarks) {
+            groupedByEntry[row.entry_no].remarks = row.remarks;
+          }
         }
 
-        groupedByEntry[row.entry_no].reps[row.replication_no] = row.plot_no;
+        plantingRows = Object.values(groupedByEntry)
+          .map((row) => ({
+            ...row,
+            plot_numbers: row.plot_numbers.sort((a, b) => a - b),
+          }))
+          .sort((a, b) => a.entry_no - b.entry_no);
+      } else {
+        const groupedByEntry = {};
 
-        if (!groupedByEntry[row.entry_no].remarks && row.remarks) {
-          groupedByEntry[row.entry_no].remarks = row.remarks;
+        for (const row of assignmentsResult.rows) {
+          if (!groupedByEntry[row.entry_no]) {
+            groupedByEntry[row.entry_no] = {
+              entry_no: row.entry_no,
+              variety_id: row.variety_id,
+              variety_name: row.variety_name,
+              remarks: row.remarks || "",
+              reps: {},
+            };
+          }
+
+          groupedByEntry[row.entry_no].reps[row.replication_no] = row.plot_no;
+
+          if (!groupedByEntry[row.entry_no].remarks && row.remarks) {
+            groupedByEntry[row.entry_no].remarks = row.remarks;
+          }
         }
+
+        plantingRows = Object.values(groupedByEntry).sort(
+          (a, b) => a.entry_no - b.entry_no
+        );
       }
-
-      const plantingRows = Object.values(groupedByEntry).sort(
-        (a, b) => a.entry_no - b.entry_no
-      );
 
       reportTrials.push({
         trial_id: layout.trial_id,

@@ -148,6 +148,7 @@ function PlantingPlanReportPage() {
         <>
           {reportData.trials.map((trial) => {
             const repCount = Number(reportData.experiment.replications_per_trial);
+            const isCRD = reportData.experiment.design_type === "CRD";
 
             const rowLength = (
               (Number(reportData.experiment.plants_per_row) - 1) *
@@ -194,17 +195,26 @@ function PlantingPlanReportPage() {
 
                 <div className="wf-table-wrap">
                   <table className="wf-table">
-                    <thead>
-                      <tr>
-                        <th>ENTRY NO.</th>
-                        <th>VARIETY</th>
-                        {Array.from({ length: repCount }, (_, i) => (
+
+
+
+                  <thead>
+                    <tr>
+                      <th>ENTRY NO.</th>
+                      <th>VARIETY</th>
+
+                      {isCRD ? (
+                        <th>PLOT NUMBERS</th>
+                      ) : (
+                        Array.from({ length: repCount }, (_, i) => (
                           <th key={i}>REP {i + 1}</th>
-                        ))}
-                        <th>REMARKS</th>
-                        <th>SAVE</th>
-                      </tr>
-                    </thead>
+                        ))
+                      )}
+
+                      <th>REMARKS</th>
+                      <th>SAVE</th>
+                    </tr>
+                  </thead>
                     <tbody>
                       {trial.rows.map((row) => {
                         const rowKey = `${trial.trial_id}-${row.entry_no}`;
@@ -214,10 +224,18 @@ function PlantingPlanReportPage() {
                             <td>{row.entry_no}</td>
                             <td>{row.variety_name}</td>
 
-                            {Array.from({ length: repCount }, (_, i) => {
-                              const repNo = i + 1;
-                              return <td key={repNo}>{row.reps?.[repNo] || ""}</td>;
-                            })}
+                            {isCRD ? (
+                              <td>
+                                {row.plot_numbers?.length
+                                  ? row.plot_numbers.join(", ")
+                                  : "-"}
+                              </td>
+                            ) : (
+                              Array.from({ length: repCount }, (_, i) => {
+                                const repNo = i + 1;
+                                return <td key={repNo}>{row.reps?.[repNo] || "-"}</td>;
+                              })
+                            )}
 
                             <td style={{ minWidth: "220px" }}>
                             <input

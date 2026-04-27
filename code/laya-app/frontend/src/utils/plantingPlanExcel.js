@@ -33,6 +33,8 @@ export function downloadPlantingPlanExcel(reportData) {
 
   const { experiment, trials } = reportData;
   const repCount = Number(experiment.replications_per_trial || 0);
+  const isCRD = experiment.design_type === "CRD";
+
   const rowLength = computeRowLength(
     experiment.plants_per_row,
     experiment.plant_spacing
@@ -44,18 +46,20 @@ export function downloadPlantingPlanExcel(reportData) {
     const rows = [];
 
     rows.push([`${experiment.design_type} Planting Plan`]);
-    rows.push([`Experiment`, formatValue(experiment.experiment_name)]);
-    rows.push([`Trial`, formatValue(trial.trial_name)]);
-    rows.push([`Location`, formatValue(experiment.location)]);
-    rows.push([`Date Planted`, formatDate(experiment.date_planted)]);
-    rows.push([`Season`, formatValue(experiment.season)]);
+    rows.push(["Experiment", formatValue(experiment.experiment_name)]);
+    rows.push(["Trial", formatValue(trial.trial_name)]);
+    rows.push(["Location", formatValue(experiment.location)]);
+    rows.push(["Date Planted", formatDate(experiment.date_planted)]);
+    rows.push(["Season", formatValue(experiment.season)]);
     rows.push([]);
+
     rows.push([
       `${formatValue(experiment.replications_per_trial)} replications, ` +
         `${formatValue(experiment.varieties_per_replication)} plots/rep, ` +
         `${formatValue(experiment.rows_per_plot)} rows/plot, ` +
         `${formatValue(experiment.plants_per_row)} plants/row`,
     ]);
+
     rows.push([
       `Spacing: ${formatValue(experiment.row_spacing)}m x ${formatValue(
         experiment.plant_spacing
@@ -63,33 +67,48 @@ export function downloadPlantingPlanExcel(reportData) {
         experiment.alleyway_spacing
       )}m`,
     ]);
+
     rows.push([]);
 
-    const header = [
-      "Entry No.",
-      "Variety",
-      ...Array.from({ length: repCount }, (_, i) => `Rep ${i + 1}`),
-      "Remarks",
-    ];
+    const header = isCRD
+      ? ["Entry No.", "Variety", "Plot Numbers", "Remarks"]
+      : [
+          "Entry No.",
+          "Variety",
+          ...Array.from({ length: repCount }, (_, i) => `Rep ${i + 1}`),
+          "Remarks",
+        ];
+
     rows.push(header);
 
     (trial.rows || []).forEach((row) => {
-      rows.push([
-        row.entry_no,
-        row.variety_name,
-        ...Array.from({ length: repCount }, (_, i) => row.reps?.[i + 1] || ""),
-        row.remarks || "",
-      ]);
+      if (isCRD) {
+        rows.push([
+          row.entry_no,
+          row.variety_name,
+          row.plot_numbers?.join(", ") || "",
+          row.remarks || "",
+        ]);
+      } else {
+        rows.push([
+          row.entry_no,
+          row.variety_name,
+          ...Array.from({ length: repCount }, (_, i) => row.reps?.[i + 1] || ""),
+          row.remarks || "",
+        ]);
+      }
     });
 
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
 
-    worksheet["!cols"] = [
-      { wch: 12 },
-      { wch: 18 },
-      ...Array.from({ length: repCount }, () => ({ wch: 10 })),
-      { wch: 24 },
-    ];
+    worksheet["!cols"] = isCRD
+      ? [{ wch: 12 }, { wch: 22 }, { wch: 30 }, { wch: 24 }]
+      : [
+          { wch: 12 },
+          { wch: 22 },
+          ...Array.from({ length: repCount }, () => ({ wch: 10 })),
+          { wch: 24 },
+        ];
 
     XLSX.utils.book_append_sheet(
       workbook,
