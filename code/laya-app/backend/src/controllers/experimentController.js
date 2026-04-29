@@ -1,10 +1,32 @@
 const pool = require("../config/database");
 const { buildBackendTrialLayout } = require("../utils/layoutUtils");
 const logActivity = require("../utils/logActivity");
+const {
+  getContinuousPlotNumberMap,
+  getRepOrder,
+  getTrialOrder,
+} = require("../utils/orientationUtils");
+
+function getOperationalEntrywaySide(entryway) {
+  if (!entryway) return null;
+
+  const value = String(entryway).toUpperCase();
+
+  if (value.includes("EAST")) return "EAST";
+  if (value.includes("WEST")) return "WEST";
+  if (value.includes("SOUTH")) return "SOUTH";
+  if (value.includes("NORTH")) return "NORTH";
+
+  return value;
+}
 
 async function getExperimentPolygonDimensions(client, experimentId) {
   const polygonResult = await client.query(
-    `SELECT width_m, height_m, area_sq_m
+    `SELECT 
+        width_m, 
+        height_m, 
+        area_sq_m,
+        ST_AsGeoJSON(geom) AS geojson
      FROM experiment_polygons
      WHERE experiment_id = $1
      ORDER BY id DESC
@@ -16,7 +38,52 @@ async function getExperimentPolygonDimensions(client, experimentId) {
     return null;
   }
 
-  return polygonResult.rows[0];
+  const polygon = polygonResult.rows[0];
+
+  let entryway = null;
+
+  try {
+    const geo = JSON.parse(polygon.geojson);
+
+    const coords = geo.coordinates?.[0];
+
+    if (coords && coords.length >= 4) {
+      const p1 = coords[0];
+      const p2 = coords[1];
+
+      const edgeMidLng = (p1[0] + p2[0]) / 2;
+      const edgeMidLat = (p1[1] + p2[1]) / 2;
+
+      const uniqueCoords = coords.slice(0, -1);
+
+      const centerLng =
+        uniqueCoords.reduce((sum, p) => sum + p[0], 0) / uniqueCoords.length;
+
+      const centerLat =
+        uniqueCoords.reduce((sum, p) => sum + p[1], 0) / uniqueCoords.length;
+
+      const dx = edgeMidLng - centerLng;
+      const dy = edgeMidLat - centerLat;
+
+      const horizontal = dx > 0 ? "EAST" : "WEST";
+      const vertical = dy > 0 ? "NORTH" : "SOUTH";
+
+      if (Math.abs(dx) > Math.abs(dy) * 2) {
+        entryway = horizontal;
+      } else if (Math.abs(dy) > Math.abs(dx) * 2) {
+        entryway = vertical;
+      } else {
+        entryway = `${vertical}${horizontal}`;
+      }
+    }
+  } catch (err) {
+    console.error("Error parsing polygon geojson:", err);
+  }
+
+  return {
+    ...polygon,
+    entryway,
+  };
 }
 
 async function createExperiment(req, res) {
@@ -304,6 +371,8 @@ async function generateLayout(req, res) {
       });
     }
 
+    const entryway = polygon.entryway || null;
+
     const fieldWidthRaw = Number(polygon.width_m || 0);
     const fieldLengthRaw = Number(polygon.height_m || 0);
     const margin = Number(experiment.field_margin || 0);
@@ -344,12 +413,31 @@ async function generateLayout(req, res) {
         trialGap: experiment.alleyway_spacing,
       });
 
+      const entrywaySide = getOperationalEntrywaySide(
+        entryway,
+        builtLayout.repDirection
+      );
+
+      const repOrder = getRepOrder(
+        experiment.replications_per_trial,
+        builtLayout.repDirection,
+        entryway
+      );
+
+      const trialOrder = getTrialOrder(
+        experiment.number_of_trials,
+        builtLayout.trialDirection,
+        entryway
+      );
+
       if (!builtLayout.fitsField) {
         await client.query("ROLLBACK");
         return res.status(400).json({
           message:
             `Experiment does not fit the saved field dimensions. ` +
-            `Required footprint: ${Number(builtLayout.experimentWidth).toFixed(2)} m × ` +
+            `Required footprint: ${Number(builtLayout.experimentWidth).toFixed(
+              2
+            )} m × ` +
             `${Number(builtLayout.experimentHeight).toFixed(2)} m. ` +
             `Usable field: ${Number(usableFieldWidth).toFixed(2)} m × ` +
             `${Number(usableFieldLength).toFixed(2)} m.`,
@@ -415,28 +503,23 @@ async function generateLayout(req, res) {
       const layout = layoutResult.rows[0];
       const savedAssignments = [];
 
+      const plotNumberMap = getContinuousPlotNumberMap({
+        replications: experiment.replications_per_trial,
+        repDirection: builtLayout.repDirection,
+        entryway,
+        plotsAcross: builtLayout.plotsAcross,
+        plotRowsDown: builtLayout.plotRowsDown,
+      });
+
+      
       for (const replication of builtLayout.replications) {
         for (let i = 0; i < replication.assignments.length; i++) {
           const assignment = replication.assignments[i];
-
-          const plotsPerReplication =
-            Number(builtLayout.plotsAcross) * Number(builtLayout.plotRowsDown);
-
           const localPlotRow = Math.floor(i / builtLayout.plotsAcross) + 1;
-          const rawCol = i % builtLayout.plotsAcross;
-
-          const plotCol = rawCol + 1;
-
-          const localSnakePlotNo =
-            localPlotRow % 2 === 0
-              ? (localPlotRow - 1) * builtLayout.plotsAcross +
-                (builtLayout.plotsAcross - rawCol)
-              : (localPlotRow - 1) * builtLayout.plotsAcross +
-                (rawCol + 1);
-
-          const plotNo =
-            (Number(replication.replicationNo) - 1) * plotsPerReplication +
-            localSnakePlotNo;
+          const plotCol = (i % builtLayout.plotsAcross) + 1;
+          const plotNo = plotNumberMap.get(
+            `${replication.replicationNo}-${localPlotRow}-${plotCol}`
+          );
 
           const plotRow = localPlotRow;
 
@@ -470,6 +553,10 @@ async function generateLayout(req, res) {
       allLayouts.push({
         layout,
         assignments: savedAssignments,
+        entryway,
+        entrywaySide,
+        repOrder,
+        trialOrder,
         trial,
         plotsAcross: builtLayout.plotsAcross,
         plotRowsDown: builtLayout.plotRowsDown,
@@ -538,6 +625,9 @@ async function getExperimentLayouts(req, res) {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    const polygon = await getExperimentPolygonDimensions(pool, id);
+    const entryway = polygon?.entryway || null;
+
     const layoutsResult = await pool.query(
       `SELECT 
           l.*,
@@ -553,6 +643,23 @@ async function getExperimentLayouts(req, res) {
     const grouped = {};
 
     for (const layout of layoutsResult.rows) {
+      const entrywaySide = getOperationalEntrywaySide(
+        entryway,
+        layout.rep_direction
+      );
+
+      const repOrder = getRepOrder(
+        experiment.replications_per_trial,
+        layout.rep_direction,
+        entryway
+      );
+
+      const trialOrder = getTrialOrder(
+        experiment.number_of_trials,
+        layout.trial_direction,
+        entryway
+      );
+
       const assignmentsResult = await pool.query(
         `SELECT 
             pa.*,
@@ -578,6 +685,10 @@ async function getExperimentLayouts(req, res) {
 
       grouped[batchId].layouts.push({
         ...layout,
+        entryway,
+        entrywaySide,
+        repOrder,
+        trialOrder,
         plotsAcross: layout.plots_across,
         plotRowsDown: layout.plot_rows_down,
         replicationWidth: layout.replication_width,
@@ -608,7 +719,6 @@ async function getExperimentLayouts(req, res) {
     res.status(500).json({ message: "Server error" });
   }
 }
-
 async function deleteLayoutBatch(req, res) {
   try {
     const { id, batchId } = req.params;
