@@ -13,6 +13,37 @@ import { useAuth } from "../context/AuthContext";
 import { fetchAllExperimentPolygons } from "../services/experimentService";
 import "leaflet/dist/leaflet.css";
 
+function MapCompass() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: "14px",
+        bottom: "14px",
+        zIndex: 1000,
+        width: "76px",
+        height: "76px",
+        borderRadius: "50%",
+        background: "rgba(255,255,255,0.92)",
+        border: "1px solid #cbd5d1",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 800,
+        color: "#064e3b",
+        pointerEvents: "none",
+      }}
+    >
+      <div style={{ position: "absolute", top: "6px" }}>N</div>
+      <div style={{ position: "absolute", right: "8px" }}>E</div>
+      <div style={{ position: "absolute", bottom: "6px" }}>S</div>
+      <div style={{ position: "absolute", left: "8px" }}>W</div>
+      <div style={{ fontSize: "26px", lineHeight: 1 }}>↑</div>
+    </div>
+  );
+}
+
 function geoJsonToLatLngs(geojsonString) {
   const geojson =
     typeof geojsonString === "string" ? JSON.parse(geojsonString) : geojsonString;
@@ -97,7 +128,15 @@ function MapViewPage() {
         {loading && <div className="wf-loading">Loading map polygons...</div>}
         {error && <div className="wf-error">{error}</div>}
 
-        <div style={{ height: "72vh", borderRadius: "16px", overflow: "hidden" }}>
+        <div
+          style={{
+            height: "72vh",
+            borderRadius: "16px",
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
+          <MapCompass />
           <MapContainer
             center={center}
             zoom={18}

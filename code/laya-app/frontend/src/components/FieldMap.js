@@ -20,6 +20,37 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+function MapCompass() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: "14px",
+        bottom: "14px",
+        zIndex: 1000,
+        width: "76px",
+        height: "76px",
+        borderRadius: "50%",
+        background: "rgba(255,255,255,0.92)",
+        border: "1px solid #cbd5d1",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 800,
+        color: "#064e3b",
+        pointerEvents: "none",
+      }}
+    >
+      <div style={{ position: "absolute", top: "6px" }}>N</div>
+      <div style={{ position: "absolute", right: "8px" }}>E</div>
+      <div style={{ position: "absolute", bottom: "6px" }}>S</div>
+      <div style={{ position: "absolute", left: "8px" }}>W</div>
+      <div style={{ fontSize: "26px", lineHeight: 1 }}>↑</div>
+    </div>
+  );
+}
+
 function toLngLatRing(latlngs) {
   const ring = latlngs.map((point) => [point.lng, point.lat]);
 
@@ -181,7 +212,15 @@ function FieldMap({
   }
 
   return (
-    <div style={{ height: "420px", borderRadius: "16px", overflow: "hidden" }}>
+    <div
+      style={{
+        height: "420px",
+        borderRadius: "16px",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      <MapCompass />
       <MapContainer
         center={center}
         zoom={18}

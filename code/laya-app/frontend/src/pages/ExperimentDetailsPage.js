@@ -66,6 +66,37 @@ function groupAssignmentsByReplication(assignments = []) {
     }));
 }
 
+function orderLayoutsByTrialOrder(layouts = []) {
+  const firstLayout = layouts[0];
+
+  if (!firstLayout?.trialOrder?.length) {
+    return layouts;
+  }
+
+  return [...layouts].sort((a, b) => {
+    const aTrial = Number(a.trial_number);
+    const bTrial = Number(b.trial_number);
+
+    return (
+      firstLayout.trialOrder.indexOf(aTrial) -
+      firstLayout.trialOrder.indexOf(bTrial)
+    );
+  });
+}
+
+function orderReplicationsByRepOrder(groupedReplications = [], repOrder = []) {
+  if (!repOrder?.length) {
+    return groupedReplications;
+  }
+
+  return [...groupedReplications].sort((a, b) => {
+    return (
+      repOrder.indexOf(Number(a.replicationNo)) -
+      repOrder.indexOf(Number(b.replicationNo))
+    );
+  });
+}
+
 function ExperimentDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -583,6 +614,10 @@ function ExperimentDetailsPage() {
     );
   }
 
+  const orderedSelectedLayouts = orderLayoutsByTrialOrder(
+    selectedBatch?.layouts || []
+  );
+
   const selectedTrialDirection =
     selectedBatch?.layouts?.[0]?.trialDirection === "vertical"
       ? "column"
@@ -807,9 +842,10 @@ function ExperimentDetailsPage() {
                   flexWrap: "nowrap",
                 }}
               >
-                {selectedBatch.layouts.map((layout) => {
-                  const groupedReplications = groupAssignmentsByReplication(
-                    layout.assignments
+                {orderedSelectedLayouts.map((layout) => {
+                  const groupedReplications = orderReplicationsByRepOrder(
+                    groupAssignmentsByReplication(layout.assignments),
+                    layout.repOrder
                   );
 
                   const repFlexDirection =
@@ -820,7 +856,24 @@ function ExperimentDetailsPage() {
                       key={layout.id}
                       className="wf-layout-trial-card wf-layout-trial-card-print"
                     >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <h3 style={{ marginTop: 0 }}>{layout.trial_name}</h3>
+                      {layout.entryway && (
+                        <div
+                          style={{
+                            padding: "6px 10px",
+                            border: "1px solid #007f5f",
+                            borderRadius: "999px",
+                            color: "#005f46",
+                            fontWeight: 700,
+                            fontSize: "13px",
+                            background: "#eefaf5",
+                          }}
+                        >
+                          ENTRYWAY / ROAD SIDE: {layout.entryway}
+                        </div>
+                      )}
+                    </div>
 
                     <div
                       className="wf-layout-meta"
