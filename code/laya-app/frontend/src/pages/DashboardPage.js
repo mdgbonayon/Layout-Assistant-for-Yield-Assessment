@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import SectionCard from "../components/SectionCard";
-//import PlaceholderPanel from "../components/PlaceholderPanel";
 import RecentActivityPanel from "../components/RecentActivityPanel";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -10,7 +9,6 @@ import {
   generateLayout,
   submitDeletionRequests,
 } from "../services/experimentService";
-
 
 function DashboardPage() {
   const { user, logout } = useAuth();
@@ -23,9 +21,21 @@ function DashboardPage() {
   const [error, setError] = useState("");
   const [selectedExperimentIds, setSelectedExperimentIds] = useState([]);
 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [designFilter, setDesignFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sortOption, setSortOption] = useState("Newest");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const rowsPerPage = 5;
+
   useEffect(() => {
     loadExperiments();
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, designFilter, statusFilter, sortOption]);
 
   async function loadExperiments() {
     try {
@@ -56,14 +66,64 @@ function DashboardPage() {
 
   const selectedCount = selectedExperimentIds.length;
 
+  const filteredExperiments = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return [...experiments]
+      .filter((exp) => {
+        const name = exp.experiment_name || "";
+        return name.toLowerCase().includes(normalizedSearch);
+      })
+      .filter((exp) => {
+        if (designFilter === "All") return true;
+        return exp.design_type === designFilter;
+      })
+      .filter((exp) => {
+        if (statusFilter === "All") return true;
+        return exp.status === statusFilter;
+      })
+      .sort((a, b) => {
+        const nameA = (a.experiment_name || "").toLowerCase();
+        const nameB = (b.experiment_name || "").toLowerCase();
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+
+        switch (sortOption) {
+          case "Oldest":
+            return dateA - dateB;
+          case "NameAZ":
+            return nameA.localeCompare(nameB);
+          case "NameZA":
+            return nameB.localeCompare(nameA);
+          case "DesignType":
+            return (a.design_type || "").localeCompare(b.design_type || "");
+          case "Status":
+            return (a.status || "").localeCompare(b.status || "");
+          case "Newest":
+          default:
+            return dateB - dateA;
+        }
+      });
+  }, [experiments, searchTerm, designFilter, statusFilter, sortOption]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredExperiments.length / rowsPerPage)
+  );
+
+  const displayedExperiments = useMemo(() => {
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return filteredExperiments.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredExperiments, currentPage]);
+
   const allVisibleIds = useMemo(
-    () => experiments.map((exp) => exp.id),
-    [experiments]
+    () => displayedExperiments.map((exp) => exp.id),
+    [displayedExperiments]
   );
 
   const allSelected =
-    experiments.length > 0 &&
-    selectedExperimentIds.length === experiments.length;
+    allVisibleIds.length > 0 &&
+    allVisibleIds.every((id) => selectedExperimentIds.includes(id));
 
   function toggleSelectExperiment(experimentId) {
     setSelectedExperimentIds((prev) =>
@@ -75,9 +135,13 @@ function DashboardPage() {
 
   function toggleSelectAll() {
     if (allSelected) {
-      setSelectedExperimentIds([]);
+      setSelectedExperimentIds((prev) =>
+        prev.filter((id) => !allVisibleIds.includes(id))
+      );
     } else {
-      setSelectedExperimentIds(allVisibleIds);
+      setSelectedExperimentIds((prev) => [
+        ...new Set([...prev, ...allVisibleIds]),
+      ]);
     }
   }
 
@@ -153,7 +217,15 @@ function DashboardPage() {
 
     navigate(`/experiments/${selectedExperimentIds[0]}/planting-plan`);
   }
-  
+
+  const showingStart =
+    filteredExperiments.length === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
+
+  const showingEnd = Math.min(
+    currentPage * rowsPerPage,
+    filteredExperiments.length
+  );
+
   return (
     <AppShell
       leftActions={[
@@ -214,16 +286,14 @@ function DashboardPage() {
 
             <div>
               <div>
-                <strong>Nickname:</strong> {user?.full_name?.split(" ")[0] || "User"}
+                <strong>Nickname:</strong>{" "}
+                {user?.nickname || user?.full_name?.split(" ")[0] || "User"}
               </div>
               <div>
                 <strong>Full Name:</strong> {user?.full_name || "-"}
               </div>
               <div>
                 <strong>Role:</strong> {user?.role || "-"}
-              </div>
-              <div>
-                <strong>Status:</strong> {user?.status || "-"}
               </div>
             </div>
           </div>
@@ -237,7 +307,55 @@ function DashboardPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Experiments">
+      <SectionCard>
+        <div className="wf-section-header-row">
+          <h2 className="wf-section-title">Experiments</h2>
+
+          <div className="wf-experiment-controls">
+            <input
+              type="text"
+              className="wf-input"
+              placeholder="Search experiment..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+
+            <select
+              className="wf-input"
+              value={designFilter}
+              onChange={(e) => setDesignFilter(e.target.value)}
+            >
+              <option value="All">All Designs</option>
+              <option value="RCBD">RCBD</option>
+              <option value="CRD">CRD</option>
+            </select>
+
+            <select
+              className="wf-input"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="All">All Status</option>
+              <option value="active">Active</option>
+              <option value="pending_deletion">Pending Deletion</option>
+              <option value="deleted">Deleted</option>
+            </select>
+
+            <select
+              className="wf-input"
+              value={sortOption}
+              onChange={(e) => setSortOption(e.target.value)}
+            >
+              <option value="Newest">Newest First</option>
+              <option value="Oldest">Oldest First</option>
+              <option value="NameAZ">Name A-Z</option>
+              <option value="NameZA">Name Z-A</option>
+              <option value="DesignType">Design Type</option>
+              <option value="Status">Status</option>
+            </select>
+          </div>
+        </div>
+
         <div className="wf-toolbar-info">
           <strong>{selectedCount}</strong> experiment
           {selectedCount === 1 ? "" : "s"} selected
@@ -277,86 +395,141 @@ function DashboardPage() {
           </button>
         </div>
 
-        {loadingExperiments && <div className="wf-loading">Loading experiments...</div>}
+        {loadingExperiments && (
+          <div className="wf-loading">Loading experiments...</div>
+        )}
+
         {error && <div className="wf-error">{error}</div>}
 
         {!loadingExperiments && !error && experiments.length === 0 && (
           <div className="wf-empty">No experiments found yet.</div>
         )}
 
-        {!loadingExperiments && !error && experiments.length > 0 && (
-          <div className="wf-table-wrap">
-            <table className="wf-table">
-              <thead>
-                <tr>
-                  <th className="wf-checkbox-cell">
-                    <input
-                      type="checkbox"
-                      className="wf-checkbox"
-                      checked={allSelected}
-                      onChange={toggleSelectAll}
-                    />
-                  </th>
-                  <th>EXPERIMENT NAME</th>
-                  <th>DATE CREATED</th>
-                  <th>DESIGN TYPE</th>
-                  <th>STATUS</th>
-                  <th>ACTIVE LAYOUT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {experiments.map((experiment) => {
-                  const isChecked = selectedExperimentIds.includes(experiment.id);
-                  const hasActiveLayout = Boolean(experiment.active_layout_batch_id);
+        {!loadingExperiments &&
+          !error &&
+          experiments.length > 0 &&
+          filteredExperiments.length === 0 && (
+            <div className="wf-empty">No experiments match your search/filter.</div>
+          )}
 
-                  return (
-                    <tr
-                      key={experiment.id}
-                      className="wf-clickable-row"
-                      onClick={() => navigate(`/experiments/${experiment.id}`)}
-                    >
-                      <td
-                        className="wf-checkbox-cell"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+        {!loadingExperiments &&
+          !error &&
+          filteredExperiments.length > 0 && (
+            <>
+              <div className="wf-table-wrap">
+                <table className="wf-table">
+                  <thead>
+                    <tr>
+                      <th className="wf-checkbox-cell">
                         <input
                           type="checkbox"
                           className="wf-checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleSelectExperiment(experiment.id)}
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
                         />
-                      </td>
-
-                      <td>{experiment.experiment_name}</td>
-
-                      <td>
-                        {experiment.created_at
-                          ? new Date(experiment.created_at).toLocaleDateString()
-                          : "-"}
-                      </td>
-
-                      <td>{experiment.design_type}</td>
-
-                      <td>{experiment.status}</td>
-
-                      <td>
-                        <span
-                          className={`wf-badge ${
-                            hasActiveLayout
-                              ? "wf-badge-active"
-                              : "wf-badge-muted"
-                          }`}
-                        >
-                          {hasActiveLayout ? "ACTIVE" : "NONE"}
-                        </span>
-                      </td>
+                      </th>
+                      <th>EXPERIMENT NAME</th>
+                      <th>DATE CREATED</th>
+                      <th>DESIGN TYPE</th>
+                      <th>STATUS</th>
+                      <th>ACTIVE LAYOUT</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  </thead>
+
+                  <tbody>
+                    {displayedExperiments.map((experiment) => {
+                      const isChecked = selectedExperimentIds.includes(
+                        experiment.id
+                      );
+
+                      const hasActiveLayout = Boolean(
+                        experiment.active_layout_batch_id
+                      );
+
+                      return (
+                        <tr
+                          key={experiment.id}
+                          className="wf-clickable-row"
+                          onClick={() =>
+                            navigate(`/experiments/${experiment.id}`)
+                          }
+                        >
+                          <td
+                            className="wf-checkbox-cell"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              className="wf-checkbox"
+                              checked={isChecked}
+                              onChange={() =>
+                                toggleSelectExperiment(experiment.id)
+                              }
+                            />
+                          </td>
+
+                          <td>{experiment.experiment_name}</td>
+
+                          <td>
+                            {experiment.created_at
+                              ? new Date(
+                                  experiment.created_at
+                                ).toLocaleDateString()
+                              : "-"}
+                          </td>
+
+                          <td>{experiment.design_type}</td>
+
+                          <td>{experiment.status}</td>
+
+                          <td>
+                            <span
+                              className={`wf-badge ${
+                                hasActiveLayout
+                                  ? "wf-badge-active"
+                                  : "wf-badge-muted"
+                              }`}
+                            >
+                              {hasActiveLayout ? "ACTIVE" : "NONE"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="wf-pagination-row">
+                <div className="wf-pagination-info">
+                  Showing {showingStart}-{showingEnd} of{" "}
+                  {filteredExperiments.length}
+                </div>
+
+                <div className="wf-pagination-actions">
+                  <button
+                    className="wf-btn wf-btn-secondary"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((prev) => prev - 1)}
+                  >
+                    Previous
+                  </button>
+
+                  <span className="wf-page-label">
+                    Page {currentPage} of {totalPages}
+                  </span>
+
+                  <button
+                    className="wf-btn wf-btn-secondary"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((prev) => prev + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
       </SectionCard>
 
       <SectionCard title="Logs">

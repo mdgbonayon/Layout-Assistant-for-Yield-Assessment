@@ -6,6 +6,7 @@ import "../styles/wireframe.css";
 function RegisterPage() {
   const [formData, setFormData] = useState({
     full_name: "",
+    nickname: "",
     email: "",
     password: "",
     role: "staff",
@@ -17,6 +18,7 @@ function RegisterPage() {
 
   function handleChange(event) {
     const { name, value } = event.target;
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -27,14 +29,15 @@ function RegisterPage() {
     event.preventDefault();
     setMessage("");
     setError("");
-
     setSubmitting(true);
 
     try {
       const data = await registerUser(formData);
       setMessage(data.message);
+
       setFormData({
         full_name: "",
+        nickname: "",
         email: "",
         password: "",
         role: "staff",
@@ -50,18 +53,18 @@ function RegisterPage() {
     <div className="wf-auth-page">
       <div className="wf-auth-shell">
         <div
-            className="wf-auth-visual"
-            style={{
-              backgroundImage: `
-                linear-gradient(180deg, rgba(20, 90, 70, 0.34), rgba(20, 90, 70, 0.68)),
-                linear-gradient(135deg, rgba(31, 122, 99, 0.22), rgba(143, 21, 55, 0.14)),
-                url(${process.env.PUBLIC_URL}/images/auth-field.jpg)
-              `,
-              backgroundPosition: "85% center",
-              backgroundSize: "cover",
-              backgroundRepeat: "no-repeat",
-            }}
-          >
+          className="wf-auth-visual"
+          style={{
+            backgroundImage: `
+              linear-gradient(180deg, rgba(20, 90, 70, 0.34), rgba(20, 90, 70, 0.68)),
+              linear-gradient(135deg, rgba(31, 122, 99, 0.22), rgba(143, 21, 55, 0.14)),
+              url(${process.env.PUBLIC_URL}/images/auth-field.jpg)
+            `,
+            backgroundPosition: "85% center",
+            backgroundSize: "cover",
+            backgroundRepeat: "no-repeat",
+          }}
+        >
           <div className="wf-auth-visual-top">
             <div className="wf-auth-logo">LAYA</div>
             <a href="/" className="wf-auth-back-link">
@@ -75,6 +78,7 @@ function RegisterPage() {
               <br />
               field-ready results
             </h2>
+
             <div className="wf-auth-visual-subtitle">
               Create your account and start organizing experiments, trials, and
               layout generations more efficiently.
@@ -90,6 +94,7 @@ function RegisterPage() {
         <div className="wf-auth-form-side">
           <div className="wf-auth-form-wrap">
             <h1 className="wf-auth-form-title">Create account</h1>
+
             <div className="wf-auth-form-subtitle">
               Already have an account? <Link to="/login">Log in</Link>
             </div>
@@ -107,6 +112,17 @@ function RegisterPage() {
                   onChange={handleChange}
                   placeholder="Full name"
                   required
+                />
+              </div>
+
+              <div className="wf-auth-field">
+                <input
+                  className="wf-auth-input"
+                  type="text"
+                  name="nickname"
+                  value={formData.nickname}
+                  onChange={handleChange}
+                  placeholder="Nickname"
                 />
               </div>
 
@@ -133,8 +149,6 @@ function RegisterPage() {
                   required
                 />
               </div>
-
-              
 
               <button
                 type="submit"

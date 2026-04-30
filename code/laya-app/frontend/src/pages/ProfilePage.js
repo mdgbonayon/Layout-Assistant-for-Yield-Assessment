@@ -10,8 +10,8 @@ function ProfilePage() {
 
   const [profile, setProfile] = useState(null);
   const [fullName, setFullName] = useState("");
+  const [nickname, setNickname] = useState("");
   const [email, setEmail] = useState("");
-  const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
 
   const [currentPassword, setCurrentPassword] = useState("");
@@ -27,20 +27,29 @@ function ProfilePage() {
 
   const token = localStorage.getItem("token");
 
+  const API_URL =
+    process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+
+  const API_BASE_URL =
+    process.env.REACT_APP_API_BASE_URL || "http://localhost:5000";
+
   useEffect(() => {
     loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadProfile() {
     try {
       setLoading(true);
       setError("");
-      const profileRes = await axios.get("/api/auth/me", {
+
+      const profileRes = await axios.get(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       setProfile(profileRes.data);
       setFullName(profileRes.data.full_name || "");
+      setNickname(profileRes.data.nickname || "");
       setEmail(profileRes.data.email || "");
       localStorage.setItem("user", JSON.stringify(profileRes.data));
     } catch (err) {
@@ -96,40 +105,35 @@ function ProfilePage() {
 
   const imageSrc = useMemo(() => {
     if (preview) return preview;
+
     if (profile?.profile_image_url) {
-      return `${window.location.protocol}//${window.location.hostname}:5000${profile.profile_image_url}`;
+      if (profile.profile_image_url.startsWith("http")) {
+        return profile.profile_image_url;
+      }
+
+      return `${API_BASE_URL}${profile.profile_image_url}`;
     }
-    return "https://via.placeholder.com/120";
-  }, [preview, profile]);
 
-  async function handleSaveProfile() {
-    try {
-      setSavingProfile(true);
-      setError("");
-      setSuccess("");
+    return "https://via.placeholder.com/130";
+  }, [preview, profile, API_BASE_URL]);
 
-      const updateRes = await axios.put(
-        "/api/auth/me",
-        { full_name: fullName, email },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+  async function handleImageChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      setProfile(updateRes.data.user);
-      localStorage.setItem("user", JSON.stringify(updateRes.data.user));
-      setSuccess("Profile updated successfully.");
-    } catch (err) {
-      console.error("Profile update failed:", err);
-      setError(err?.response?.data?.message || "Failed to update profile.");
-    } finally {
-      setSavingProfile(false);
-    }
-  }
+    const validTypes = ["image/jpeg", "image/png", "image/jpg", "image/webp"];
 
-  async function handleUploadImage() {
-    if (!image) {
-      setError("Please choose an image first.");
+    if (!validTypes.includes(file.type)) {
+      setError("Please upload a JPG, PNG, or WEBP image.");
       return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image must be 5MB or smaller.");
+      return;
+    }
+
+    setPreview(URL.createObjectURL(file));
 
     try {
       setUploadingImage(true);
@@ -137,10 +141,10 @@ function ProfilePage() {
       setSuccess("");
 
       const formData = new FormData();
-      formData.append("profileImage", image);
+      formData.append("profileImage", file);
 
       const uploadRes = await axios.post(
-        "/api/auth/me/profile-image",
+        `${API_URL}/auth/me/profile-image`,
         formData,
         {
           headers: {
@@ -156,59 +160,39 @@ function ProfilePage() {
 
       setProfile(updatedProfile);
       localStorage.setItem("user", JSON.stringify(updatedProfile));
-      setImage(null);
       setPreview(null);
       setSuccess("Profile image updated successfully.");
     } catch (err) {
       console.error("Image upload failed:", err);
-      setError(err?.response?.data?.message || "Failed to upload profile image.");
+      setError(err?.response?.data?.message || "Failed to upload image.");
     } finally {
       setUploadingImage(false);
+      e.target.value = "";
     }
   }
 
-    async function handleImageChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // show preview instantly
-    setPreview(URL.createObjectURL(file));
-    setImage(file);
-
+  async function handleSaveProfile() {
     try {
-        setUploadingImage(true);
-        setError("");
-        setSuccess("");
+      setSavingProfile(true);
+      setError("");
+      setSuccess("");
 
-        const formData = new FormData();
-        formData.append("profileImage", file);
+      const updateRes = await axios.put(
+        `${API_URL}/auth/me`,
+        { full_name: fullName, nickname, email },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-        const uploadRes = await axios.post(
-        "/api/auth/me/profile-image",
-        formData,
-        {
-            headers: {
-            Authorization: `Bearer ${token}`,
-            },
-        }
-        );
-
-        const updatedProfile = {
-        ...profile,
-        profile_image_url: uploadRes.data.profile_image_url,
-        };
-
-        setProfile(updatedProfile);
-        localStorage.setItem("user", JSON.stringify(updatedProfile));
-
-        setSuccess("Profile image updated!");
+      setProfile(updateRes.data.user);
+      localStorage.setItem("user", JSON.stringify(updateRes.data.user));
+      setSuccess("Profile updated successfully.");
     } catch (err) {
-        console.error(err);
-        setError("Failed to upload image");
+      console.error("Profile update failed:", err);
+      setError(err?.response?.data?.message || "Failed to update profile.");
     } finally {
-        setUploadingImage(false);
+      setSavingProfile(false);
     }
-    }
+  }
 
   async function handleChangePassword() {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -227,7 +211,7 @@ function ProfilePage() {
       setSuccess("");
 
       await axios.put(
-        "/api/auth/me/password",
+        `${API_URL}/auth/me/password`,
         {
           current_password: currentPassword,
           new_password: newPassword,
@@ -251,161 +235,154 @@ function ProfilePage() {
 
   return (
     <AppShell leftActions={leftActions} rightActions={rightActions}>
-      <div style={{ maxWidth: "920px", margin: "0 auto" }}>
-        <h2 style={{ marginBottom: "20px" }}>Profile</h2>
+      <div className="wf-profile-page-wrap">
+        <div className="wf-profile-page-header">
+          <div>
+            <h2 className="wf-profile-page-title">Profile</h2>
+            <p className="wf-profile-page-subtitle">
+              Manage your account information, profile photo, and password.
+            </p>
+          </div>
+        </div>
 
         {loading && <div className="wf-loading">Loading profile...</div>}
-        {error && <div className="wf-error">{error}</div>}
+        {error && <div className="wf-profile-message wf-profile-message-error">{error}</div>}
         {success && (
-          <div
-            style={{
-              marginBottom: "16px",
-              padding: "12px 14px",
-              borderRadius: "12px",
-              background: "#eaf7f1",
-              border: "1px solid #b9e0ca",
-              color: "#1f7a63",
-              fontWeight: 600,
-            }}
-          >
+          <div className="wf-profile-message wf-profile-message-success">
             {success}
           </div>
         )}
 
         {!loading && (
           <>
-            <div
-              className="wf-summary-box"
-              style={{
-                marginBottom: "20px",
-                padding: "24px",
-                display: "grid",
-                gridTemplateColumns: "140px 1fr",
-                gap: "24px",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <img
-                  src={imageSrc}
-                  alt="Profile"
-                  style={{
-                    width: 120,
-                    height: 120,
-                    borderRadius: "50%",
-                    objectFit: "cover",
-                    border: "2px solid #d6ddd8",
-                  }}
-                />
-              </div>
-
-              <div>
-                <div
-                  style={{
-                    marginBottom: "12px",
-                    fontWeight: 700,
-                    fontSize: "18px",
-                  }}
-                >
-                  Profile Picture
+            <div className="wf-summary-box wf-profile-card">
+              <div className="wf-profile-image-section">
+                <div className="wf-profile-image-wrap">
+                  <img
+                    src={imageSrc}
+                    alt="Profile"
+                    className="wf-profile-image-preview"
+                  />
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "12px",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <label className="wf-btn wf-btn-primary">
-                    Choose Image
-                    <input
+
+                <div>
+                  <h3 className="wf-profile-section-title">Profile Picture</h3>
+                  <p className="wf-profile-help">
+                    Upload a clear profile photo. JPG, PNG, or WEBP only, up to
+                    5MB.
+                  </p>
+
+                  <div className="wf-profile-image-actions">
+                    <label className="wf-btn wf-btn-primary">
+                      {uploadingImage ? "Uploading..." : "Choose Image"}
+                      <input
                         type="file"
+                        accept="image/png,image/jpeg,image/jpg,image/webp"
                         onChange={handleImageChange}
+                        disabled={uploadingImage}
                         style={{ display: "none" }}
-                    />
+                      />
                     </label>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div
-              className="wf-summary-box"
-              style={{ marginBottom: "20px", padding: "24px" }}
-            >
-              <h3 style={{ marginTop: 0, marginBottom: "18px" }}>
-                Account Information
-              </h3>
+            <div className="wf-profile-grid">
+              <div className="wf-summary-box wf-profile-card">
+                <h3 className="wf-profile-section-title">Account Information</h3>
 
-              <div className="wf-form-group" style={{ marginBottom: "16px" }}>
-                <label className="wf-label">Full Name</label>
-                <input
-                  className="wf-input"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                />
+                <div className="wf-profile-meta-grid">
+                  <div>
+                    <span className="wf-profile-meta-label">Role</span>
+                    <strong>{profile?.role || "-"}</strong>
+                  </div>
+
+                  <div>
+                    <span className="wf-profile-meta-label">Status</span>
+                    <strong>{profile?.status || "-"}</strong>
+                  </div>
+                </div>
+
+                <div className="wf-form-group">
+                  <label className="wf-label">Full Name</label>
+                  <input
+                    className="wf-input"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                  />
+                </div>
+
+                <div className="wf-form-group">
+                  <label className="wf-label">Nickname</label>
+                  <input
+                    className="wf-input"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                    placeholder="Preferred nickname"
+                  />
+                </div>
+
+                <div className="wf-form-group">
+                  <label className="wf-label">Email</label>
+                  <input
+                    className="wf-input"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  className="wf-btn wf-btn-primary"
+                  onClick={handleSaveProfile}
+                  disabled={savingProfile}
+                >
+                  {savingProfile ? "Saving..." : "Save Changes"}
+                </button>
               </div>
 
-              <div className="wf-form-group" style={{ marginBottom: "16px" }}>
-                <label className="wf-label">Email</label>
-                <input
-                  className="wf-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+              <div className="wf-summary-box wf-profile-card">
+                <h3 className="wf-profile-section-title">Change Password</h3>
+
+                <div className="wf-form-group">
+                  <label className="wf-label">Current Password</label>
+                  <input
+                    className="wf-input"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                </div>
+
+                <div className="wf-form-group">
+                  <label className="wf-label">New Password</label>
+                  <input
+                    className="wf-input"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+
+                <div className="wf-form-group">
+                  <label className="wf-label">Confirm Password</label>
+                  <input
+                    className="wf-input"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  className="wf-btn wf-btn-primary"
+                  onClick={handleChangePassword}
+                  disabled={changingPassword}
+                >
+                  {changingPassword ? "Changing..." : "Change Password"}
+                </button>
               </div>
-
-              <button
-                className="wf-btn wf-btn-primary"
-                onClick={handleSaveProfile}
-                disabled={savingProfile}
-              >
-                {savingProfile ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-
-            <div className="wf-summary-box" style={{ padding: "24px" }}>
-              <h3 style={{ marginTop: 0, marginBottom: "18px" }}>
-                Change Password
-              </h3>
-
-              <div className="wf-form-group" style={{ marginBottom: "16px" }}>
-                <label className="wf-label">Current Password</label>
-                <input
-                  className="wf-input"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                />
-              </div>
-
-              <div className="wf-form-group" style={{ marginBottom: "16px" }}>
-                <label className="wf-label">New Password</label>
-                <input
-                  className="wf-input"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-              </div>
-
-              <div className="wf-form-group" style={{ marginBottom: "16px" }}>
-                <label className="wf-label">Confirm Password</label>
-                <input
-                  className="wf-input"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-              </div>
-
-              <button
-                className="wf-btn wf-btn-primary"
-                onClick={handleChangePassword}
-                disabled={changingPassword}
-              >
-                {changingPassword ? "Changing..." : "Change Password"}
-              </button>
             </div>
           </>
         )}
