@@ -3,14 +3,11 @@ const jwt = require("jsonwebtoken");
 const pool = require("../config/database");
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 
 /* =========================
    MULTER CONFIG (UPLOAD)
 ========================= */
-const fs = require("fs");
-const path = require("path");
-const multer = require("multer");
-
 const uploadDir = path.join(__dirname, "../../uploads/profiles");
 
 if (!fs.existsSync(uploadDir)) {
