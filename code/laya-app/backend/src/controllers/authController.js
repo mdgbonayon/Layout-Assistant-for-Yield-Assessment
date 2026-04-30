@@ -12,8 +12,7 @@ const storage = multer.diskStorage({
     cb(null, "uploads/profiles");
   },
   filename: function (req, file, cb) {
-    const uniqueName =
-      Date.now() + "-" + Math.round(Math.random() * 1e9);
+    const uniqueName = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(null, uniqueName + path.extname(file.originalname));
   },
 });
@@ -24,7 +23,7 @@ const upload = multer({ storage });
    REGISTER
 ========================= */
 async function register(req, res) {
-  const { full_name, email, password, role } = req.body;
+  const { full_name, nickname, email, password, role } = req.body;
 
   try {
     if (!full_name || !email || !password || !role) {
@@ -47,10 +46,10 @@ async function register(req, res) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      `INSERT INTO users (full_name, email, password_hash, role, status)
-       VALUES ($1, $2, $3, $4, 'pending')
-       RETURNING id, full_name, email, role, status`,
-      [full_name, email, passwordHash, role]
+      `INSERT INTO users (full_name, nickname, email, password_hash, role, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')
+       RETURNING id, full_name, nickname, email, role, status`,
+      [full_name, nickname || null, email, passwordHash, role]
     );
 
     res.status(201).json({
@@ -71,7 +70,7 @@ async function login(req, res) {
 
   try {
     const result = await pool.query(
-      `SELECT id, full_name, email, password_hash, role, status
+      `SELECT id, full_name, nickname, email, password_hash, role, status, profile_image_url
        FROM users
        WHERE email = $1`,
       [email]
@@ -110,9 +109,11 @@ async function login(req, res) {
       user: {
         id: user.id,
         full_name: user.full_name,
+        nickname: user.nickname,
         email: user.email,
         role: user.role,
         status: user.status,
+        profile_image_url: user.profile_image_url,
       },
     });
   } catch (error) {
@@ -127,7 +128,7 @@ async function login(req, res) {
 async function me(req, res) {
   try {
     const result = await pool.query(
-      `SELECT id, full_name, email, role, status, profile_image_url
+      `SELECT id, full_name, nickname, email, role, status, profile_image_url
        FROM users
        WHERE id = $1`,
       [req.user.id]
@@ -148,17 +149,31 @@ async function me(req, res) {
    UPDATE PROFILE
 ========================= */
 async function updateProfile(req, res) {
-  const { full_name, email } = req.body;
+  const { full_name, nickname, email } = req.body;
 
   try {
+    if (!full_name || !email) {
+      return res.status(400).json({ message: "Full name and email are required" });
+    }
+
+    const emailOwner = await pool.query(
+      `SELECT id FROM users WHERE email = $1 AND id <> $2`,
+      [email, req.user.id]
+    );
+
+    if (emailOwner.rows.length > 0) {
+      return res.status(409).json({ message: "Email is already used by another account" });
+    }
+
     const result = await pool.query(
       `UPDATE users
        SET full_name = $1,
-           email = $2,
+           nickname = $2,
+           email = $3,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
-       RETURNING id, full_name, email, role, status, profile_image_url`,
-      [full_name, email, req.user.id]
+       WHERE id = $4
+       RETURNING id, full_name, nickname, email, role, status, profile_image_url`,
+      [full_name, nickname || null, email, req.user.id]
     );
 
     res.json({
@@ -183,12 +198,13 @@ async function changePassword(req, res) {
       [req.user.id]
     );
 
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
     const user = result.rows[0];
 
-    const match = await bcrypt.compare(
-      current_password,
-      user.password_hash
-    );
+    const match = await bcrypt.compare(current_password, user.password_hash);
 
     if (!match) {
       return res.status(400).json({ message: "Current password is incorrect" });
