@@ -10,6 +10,15 @@ import {
   submitDeletionRequests,
 } from "../services/experimentService";
 
+const API_URL = process.env.REACT_APP_API_URL;
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+
+const getProfileImageSrc = (url) => {
+  if (!url) return "https://via.placeholder.com/130";
+  if (url.startsWith("http")) return url;
+  return `${API_BASE_URL}${url}`;
+};
+
 function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -270,7 +279,7 @@ function DashboardPage() {
           <div className="wf-profile-left">
             {user?.profile_image_url ? (
               <img
-                src={user.profile_image_url}
+                src={getProfileImageSrc(user?.profile_image_url)}
                 alt="Profile"
                 style={{
                   width: 72,
