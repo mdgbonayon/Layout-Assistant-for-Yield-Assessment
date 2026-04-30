@@ -914,12 +914,23 @@ function CreateExperimentPage() {
                     gap: "18px",
                     alignItems: "flex-start",
                     overflowX: "auto",
+                    overflowY: "hidden",
+                    maxWidth: "100%",
+                    paddingBottom: "10px",
                   }}
                 >
                   {fieldAwareTrialLayouts.map((trialLayout, index) => (
                     <div
                       key={`${trialLayout.trialName}-${index}`}
-                      style={{ minWidth: "360px", flex: "0 0 auto" }}
+                      style={{
+                        width: "fit-content",
+                        minWidth: "900px",
+                        flex: "0 0 auto",
+                        transform: "scale(0.72)",
+                        transformOrigin: "top left",
+                        marginRight: "-250px",
+                        marginBottom: "-120px",
+                      }}
                     >
                       <LayoutDiagram trialLayout={trialLayout} />
                     </div>
