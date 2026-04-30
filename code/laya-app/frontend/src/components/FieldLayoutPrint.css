@@ -1,0 +1,217 @@
+.print-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: #ffffff;
+  color: #1f2933;
+  font-family: Arial, sans-serif;
+  width: max-content;
+  min-width: fit-content;
+}
+
+.print-header {
+  margin-bottom: 14px;
+}
+
+.print-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.print-meta {
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.field-wrapper {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  gap: 14px;
+  width: max-content;
+  background: #ffffff;
+  border-radius: 12px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-items: center;
+}
+
+/* Main layout */
+.field-layout {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border: 1px solid #d6ddd8;
+  padding: 12px;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+/* Entryway badge */
+.entryway-indicator {
+  background: #14532d;
+  color: #ffffff;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 8px 14px;
+  text-align: center;
+  min-width: 90px;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+
+.entryway-title {
+  font-size: 10px;
+  letter-spacing: 0.8px;
+}
+
+.entryway-side {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Cardinal directions */
+.entryway-north {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.entryway-south {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.entryway-west {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.entryway-east {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.entryway-northwest {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.entryway-northeast {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.entryway-southwest {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.entryway-southeast {
+  grid-column: 3;
+  grid-row: 3;
+}
+
+/* Trial blocks */
+.trial-print-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trial-header {
+  min-width: 300px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid #9ca3af;
+  background: #eefaf5;
+  border-radius: 6px;
+}
+
+/* Replications */
+.replications-print-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.replication-print-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rep-label {
+  font-weight: 700;
+  text-align: center;
+  font-size: 12px;
+  padding: 4px;
+  border: 1px solid #9ca3af;
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+/* Plot groups */
+.trial-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plot-row {
+  display: flex;
+  gap: 6px;
+}
+
+/* Plot box */
+.plot-box {
+  width: 58px;
+  height: 42px;
+  border: 1px solid #333;
+  font-size: 8px;
+  padding: 2px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  line-height: 1.1;
+  text-align: center;
+  background: #f9fafb;
+  box-sizing: border-box;
+}
+
+.plot-box-empty {
+  border: 1px dashed #999;
+  background: #ffffff;
+}
+
+.plot-name {
+  font-weight: 600;
+  max-width: 54px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plot-meta {
+  font-size: 8px;
+  color: #374151;
+}
+
+/* Print optimization */
+@media print {
+  .print-container {
+    padding: 10px;
+  }
+
+
+  .plot-box {
+    page-break-inside: avoid;
+  }
+}
