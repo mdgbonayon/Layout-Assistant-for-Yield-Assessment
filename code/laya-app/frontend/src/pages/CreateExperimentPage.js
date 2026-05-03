@@ -17,6 +17,7 @@ import {
   buildTrialLayout,
 } from "../utils/layoutUtils";
 import LayoutDiagram from "../components/LayoutDiagram";
+import { normalizeEntryway } from "../utils/orientationUtils";
 
 function computeFieldFit(formData, polygonData) {
   if (!polygonData) return null;
@@ -30,6 +31,7 @@ function computeFieldFit(formData, polygonData) {
   const rowSpacing = Number(formData.row_spacing || 0);
   const alley = Number(formData.alleyway_spacing || 0);
   const margin = Number(formData.field_margin || 0);
+  const entryway = normalizeEntryway(polygonData.entryway);
 
   const { plotWidth, plotHeight } = getPlotDimensions({
     rowsPerPlot,
@@ -52,6 +54,7 @@ function computeFieldFit(formData, polygonData) {
     fieldWidth: usableWidth,
     fieldHeight: usableHeight,
     trialGap: alley,
+    entryway,
   });
 
   const best = layoutResult.best;
@@ -95,6 +98,7 @@ function computeFieldFit(formData, polygonData) {
     experimentHeight: best.experimentHeight,
     score: best.score,
     candidateLayouts: layoutResult.candidates,
+    entryway, 
   };
 }
 
@@ -308,6 +312,7 @@ function CreateExperimentPage() {
       return {
         ...layout,
         trialName: trial.trial_name,
+        entryway: fitResult.entryway,
       };
     });
   }, [trials, formData, fieldPolygon, fitResult]);

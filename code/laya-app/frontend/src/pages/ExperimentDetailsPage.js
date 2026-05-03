@@ -15,7 +15,7 @@ import {
 } from "../services/experimentService";
 
 import { getPlotDimensions } from "../utils/layoutUtils";
-import html2canvas from "html2canvas";
+// import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import FieldLayoutPrint from "../components/FieldLayoutPrint";
 import ExcelJS from "exceljs";
@@ -123,77 +123,624 @@ function ExperimentDetailsPage() {
       return;
     }
 
-    const element = document.getElementById("print-layout");
+    const layouts = selectedBatch.layouts || [];
+    const firstRawLayout = layouts[0];
 
-    if (!element) {
-      alert("Layout not ready for export.");
-      return;
+    const orderedLayouts = firstRawLayout?.trialOrder?.length
+      ? [...layouts].sort(
+          (a, b) =>
+            firstRawLayout.trialOrder.indexOf(Number(a.trial_number)) -
+            firstRawLayout.trialOrder.indexOf(Number(b.trial_number))
+        )
+      : layouts;
+
+    const firstLayout = orderedLayouts[0];
+
+    const entryway = String(firstLayout?.entryway || "-").toUpperCase();
+    const trialDirection = firstLayout?.trialDirection || "horizontal";
+    const repDirection = firstLayout?.repDirection || "horizontal";
+
+    const plotsAcross = Number(firstLayout?.plotsAcross || 1);
+    const plotRowsDown = Number(firstLayout?.plotRowsDown || 1);
+    const repCount = Number(experiment?.replications_per_trial || 1);
+    const rowsPerPlot = Number(experiment?.rows_per_plot || 0);
+
+    const repOrder = firstLayout?.repOrder?.length
+      ? firstLayout.repOrder
+      : Array.from({ length: repCount }, (_, i) => i + 1);
+
+    const rowLength = Math.max(
+      0,
+      Number(experiment?.plants_per_row || 0) *
+        Number(experiment?.plant_spacing || 0) -
+        Number(experiment?.plant_spacing || 0)
+    ).toFixed(2);
+
+    const safeExperimentName = (experiment?.experiment_name || "experiment")
+      .trim()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "_");
+
+    const plotGap = 1;
+    const repGap = 1;
+    const trialGap = 1;
+
+    const rowLabelsOnTop = trialDirection === "horizontal";
+    const rowLabelsOnLeft = trialDirection === "vertical";
+
+    const blockLabelsOnLeft = repDirection === "vertical";
+    const blockLabelsOnTop = repDirection === "horizontal";
+
+    const plotGridWidth = plotsAcross + Math.max(0, plotsAcross - 1) * plotGap;
+    const plotGridHeight = plotRowsDown + Math.max(0, plotRowsDown - 1) * plotGap;
+
+    const repBlockWidth = plotGridWidth;
+    const repBlockHeight = 1 + plotGridHeight;
+
+    const trialBlockWidth =
+      repDirection === "horizontal"
+        ? repOrder.length * repBlockWidth +
+          Math.max(0, repOrder.length - 1) * repGap
+        : repBlockWidth;
+
+    const trialBlockHeight =
+      1 +
+      (repDirection === "horizontal"
+        ? repBlockHeight
+        : repOrder.length * repBlockHeight +
+          Math.max(0, repOrder.length - 1) * repGap);
+
+    const fieldWidth =
+      trialDirection === "horizontal"
+        ? orderedLayouts.length * trialBlockWidth +
+          Math.max(0, orderedLayouts.length - 1) * trialGap
+        : trialBlockWidth;
+
+    const fieldHeight =
+      trialDirection === "vertical"
+        ? orderedLayouts.length * trialBlockHeight +
+          Math.max(0, orderedLayouts.length - 1) * trialGap
+        : trialBlockHeight;
+
+    let currentStartRow = 7;
+    let currentStartCol = 2;
+
+    const entrywayTopRow = entryway === "NORTH" ? currentStartRow++ : null;
+    const topAxisRow =
+      rowLabelsOnTop || blockLabelsOnTop ? currentStartRow++ : null;
+
+    const entrywayLeftCol = entryway === "WEST" ? currentStartCol++ : null;
+    const leftAxisCol =
+      rowLabelsOnLeft || blockLabelsOnLeft ? currentStartCol++ : null;
+
+    const layoutStartRow = currentStartRow;
+    const layoutStartCol = currentStartCol;
+
+    const lastLayoutRow = layoutStartRow + fieldHeight - 1;
+    const lastLayoutCol = layoutStartCol + fieldWidth - 1;
+    const headerEndCol = Math.max(lastLayoutCol + 3, 16);
+
+    const cells = [];
+    const spacerCols = new Set();
+    const spacerRows = new Set();
+
+    function addCell(row, col, rowSpan, colSpan, value, type = "normal") {
+      cells.push({ row, col, rowSpan, colSpan, value, type });
     }
 
-    const originalStyle = {
-      width: element.style.width,
-      maxWidth: element.style.maxWidth,
-      overflow: element.style.overflow,
-      padding: element.style.padding,
-      boxSizing: element.style.boxSizing,
-    };
+    function groupByRep(assignments = []) {
+      const grouped = {};
 
-    element.style.width = "max-content";
-    element.style.maxWidth = "none";
-    element.style.overflow = "visible";
-    element.style.boxSizing = "border-box";
-    element.style.padding = "24px 80px 24px 80px";
+      assignments.forEach((a) => {
+        const repNo = Number(a.replication_no);
+        if (!grouped[repNo]) grouped[repNo] = [];
+        grouped[repNo].push(a);
+      });
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+      return grouped;
+    }
 
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: element.scrollWidth,
-      windowHeight: element.scrollHeight,
+    function buildPdfGrid(assignments = []) {
+      const grid = Array.from({ length: plotRowsDown }, () =>
+        Array(plotsAcross).fill(null)
+      );
+
+      assignments.forEach((a) => {
+        const r = Number(a.plot_row) - 1;
+        const c = Number(a.plot_col) - 1;
+
+        if (r >= 0 && r < plotRowsDown && c >= 0 && c < plotsAcross) {
+          grid[r][c] = a;
+        }
+      });
+
+      return grid;
+    }
+
+    function getTrialPosition(trialIndex) {
+      return {
+        row:
+          trialDirection === "vertical"
+            ? layoutStartRow + trialIndex * (trialBlockHeight + trialGap)
+            : layoutStartRow,
+        col:
+          trialDirection === "horizontal"
+            ? layoutStartCol + trialIndex * (trialBlockWidth + trialGap)
+            : layoutStartCol,
+      };
+    }
+
+    function getContinuousRowRange(trialIndex, localAxisIndex) {
+      if (!rowsPerPlot) return "";
+
+      const unitsPerTrial =
+        trialDirection === "horizontal" ? plotsAcross : plotRowsDown;
+
+      const axisIndex = Number(localAxisIndex) - 1;
+
+      const reversedAxisIndex =
+        entryway === "EAST" || entryway === "SOUTH"
+          ? unitsPerTrial - 1 - axisIndex
+          : axisIndex;
+
+      let effectiveTrialIndex = trialIndex;
+
+      if (entryway === "EAST" || entryway === "SOUTH") {
+        effectiveTrialIndex = orderedLayouts.length - 1 - trialIndex;
+      }
+
+      const globalUnitIndex =
+        effectiveTrialIndex * unitsPerTrial + reversedAxisIndex;
+
+      const start = globalUnitIndex * rowsPerPlot + 1;
+      const end = start + rowsPerPlot - 1;
+
+      return `Rows ${start}-${end}`;
+    }
+
+    function getPhysicalBlockIndex({ rowIndex, colIndex }) {
+      if (blockLabelsOnTop) {
+        if (entryway === "NORTH") return plotsAcross - colIndex;
+        return colIndex + 1;
+      }
+
+      if (entryway === "EAST") return plotRowsDown - rowIndex;
+      return rowIndex + 1;
+    }
+
+    function getBlockNo(repNo, blockIndex) {
+      const blocksPerRep = blockLabelsOnTop ? plotsAcross : plotRowsDown;
+      return (Number(repNo) - 1) * blocksPerRep + Number(blockIndex);
+    }
+
+    function markSpacerCol(col) {
+      spacerCols.add(col);
+    }
+
+    function markSpacerRow(row) {
+      spacerRows.add(row);
+    }
+
+    addCell(1, 1, 1, headerEndCol, `${experiment?.experiment_name || "Experiment"} Layout`, "title");
+    addCell(2, 1, 1, headerEndCol, `Location: ${experiment?.location || ""}`, "meta");
+    addCell(
+      3,
+      1,
+      1,
+      headerEndCol,
+      `${experiment?.replications_per_trial || 0} replications, ` +
+        `${experiment?.varieties_per_replication || 0} plots/rep, ` +
+        `${experiment?.rows_per_plot || 0} rows/plot, ` +
+        `${experiment?.plants_per_row || 0} plants/row`,
+      "meta"
+    );
+    addCell(
+      4,
+      1,
+      1,
+      headerEndCol,
+      `Spacing: ${Number(experiment?.plant_spacing || 0).toFixed(2)}m x ` +
+        `${Number(experiment?.row_spacing || 0).toFixed(2)}m | ` +
+        `Row Length: ${rowLength}m | ` +
+        `Alley: ${Number(experiment?.alleyway_spacing || 0).toFixed(2)}m`,
+      "meta"
+    );
+    addCell(
+      5,
+      1,
+      1,
+      headerEndCol,
+      `Entryway: ${entryway} | Replications: ${repDirection} | Trials: ${trialDirection}`,
+      "meta"
+    );
+
+    if (topAxisRow) {
+      if (rowLabelsOnTop) {
+        orderedLayouts.forEach((layout, trialIndex) => {
+          const { col: trialCol } = getTrialPosition(trialIndex);
+
+          for (let c = 0; c < plotsAcross; c++) {
+            const pdfCol = trialCol + c * (1 + plotGap);
+            addCell(
+              topAxisRow,
+              pdfCol,
+              1,
+              1,
+              getContinuousRowRange(trialIndex, c + 1),
+              "axis"
+            );
+
+            if (c < plotsAcross - 1) markSpacerCol(pdfCol + 1);
+          }
+        });
+      }
+
+      if (blockLabelsOnTop) {
+        repOrder.forEach((repNo, repIndex) => {
+          const repCol = layoutStartCol + repIndex * (repBlockWidth + repGap);
+
+          for (let c = 0; c < plotsAcross; c++) {
+            const pdfCol = repCol + c * (1 + plotGap);
+            const blockIndex = getPhysicalBlockIndex({
+              rowIndex: 0,
+              colIndex: c,
+            });
+
+            addCell(
+              topAxisRow,
+              pdfCol,
+              1,
+              1,
+              `Blk ${getBlockNo(repNo, blockIndex)}`,
+              "axis"
+            );
+
+            if (c < plotsAcross - 1) markSpacerCol(pdfCol + 1);
+          }
+        });
+      }
+    }
+
+    if (leftAxisCol) {
+      if (blockLabelsOnLeft) {
+        repOrder.forEach((repNo, repIndex) => {
+          const repRow =
+            layoutStartRow + 1 + repIndex * (repBlockHeight + repGap);
+
+          for (let r = 0; r < plotRowsDown; r++) {
+            const pdfRow = repRow + 1 + r * (1 + plotGap);
+            const blockIndex = getPhysicalBlockIndex({
+              rowIndex: r,
+              colIndex: 0,
+            });
+
+            addCell(
+              pdfRow,
+              leftAxisCol,
+              1,
+              1,
+              `Blk ${getBlockNo(repNo, blockIndex)}`,
+              "axis"
+            );
+
+            if (r < plotRowsDown - 1) markSpacerRow(pdfRow + 1);
+          }
+        });
+      }
+
+      if (rowLabelsOnLeft) {
+        orderedLayouts.forEach((layout, trialIndex) => {
+          const { row: trialRow } = getTrialPosition(trialIndex);
+          const firstRepPlotStartRow = trialRow + 2;
+
+          for (let r = 0; r < plotRowsDown; r++) {
+            const pdfRow = firstRepPlotStartRow + r * (1 + plotGap);
+
+            addCell(
+              pdfRow,
+              leftAxisCol,
+              1,
+              1,
+              getContinuousRowRange(trialIndex, r + 1),
+              "axis"
+            );
+
+            if (r < plotRowsDown - 1) markSpacerRow(pdfRow + 1);
+          }
+        });
+      }
+    }
+
+    orderedLayouts.forEach((layout, trialIndex) => {
+      const { row: baseRow, col: baseCol } = getTrialPosition(trialIndex);
+
+      addCell(
+        baseRow,
+        baseCol,
+        1,
+        trialBlockWidth,
+        layout.trial_name || `Trial ${layout.trial_number}`,
+        "header"
+      );
+
+      const grouped = groupByRep(layout.assignments || []);
+
+      repOrder.forEach((repNo, repIndex) => {
+        const repRow =
+          repDirection === "horizontal"
+            ? baseRow + 1
+            : baseRow + 1 + repIndex * (repBlockHeight + repGap);
+
+        const repCol =
+          repDirection === "horizontal"
+            ? baseCol + repIndex * (repBlockWidth + repGap)
+            : baseCol;
+
+        addCell(repRow, repCol, 1, repBlockWidth, `REP ${repNo}`, "header");
+
+        const grid = buildPdfGrid(grouped[repNo] || []);
+
+        grid.forEach((row, r) => {
+          row.forEach((plot, c) => {
+            const pdfRow = repRow + 1 + r * (1 + plotGap);
+            const pdfCol = repCol + c * (1 + plotGap);
+
+            const plotNumber =
+              plot?.plot_no ||
+              plot?.plot_number ||
+              plot?.plotNo ||
+              plot?.plot_id ||
+              plot?.id ||
+              "-";
+
+            addCell(
+              pdfRow,
+              pdfCol,
+              1,
+              1,
+              plot ? `${plot.variety_name || ""}\nPlot ${plotNumber}` : "",
+              plot ? "plot" : "empty"
+            );
+
+            if (c < plotsAcross - 1) markSpacerCol(pdfCol + 1);
+          });
+
+          if (r < plotRowsDown - 1) {
+            markSpacerRow(repRow + 1 + r * (1 + plotGap) + 1);
+          }
+        });
+
+        if (repDirection === "horizontal" && repIndex < repOrder.length - 1) {
+          markSpacerCol(repCol + repBlockWidth);
+        }
+
+        if (repDirection === "vertical" && repIndex < repOrder.length - 1) {
+          markSpacerRow(repRow + repBlockHeight);
+        }
+      });
+
+      if (trialDirection === "horizontal" && trialIndex < orderedLayouts.length - 1) {
+        markSpacerCol(baseCol + trialBlockWidth);
+      }
+
+      if (trialDirection === "vertical" && trialIndex < orderedLayouts.length - 1) {
+        markSpacerRow(baseRow + trialBlockHeight);
+      }
     });
 
-    element.style.width = originalStyle.width;
-    element.style.maxWidth = originalStyle.maxWidth;
-    element.style.overflow = originalStyle.overflow;
-    element.style.padding = originalStyle.padding;
-    element.style.boxSizing = originalStyle.boxSizing;
+    if (entryway === "NORTH") {
+      addCell(
+        entrywayTopRow,
+        layoutStartCol,
+        1,
+        fieldWidth,
+        "ENTRYWAY / ROAD SIDE: NORTH",
+        "entryway"
+      );
+    }
 
-    const imgData = canvas.toDataURL("image/png");
+    if (entryway === "SOUTH") {
+      addCell(
+        lastLayoutRow + 2,
+        layoutStartCol,
+        1,
+        fieldWidth,
+        "ENTRYWAY / ROAD SIDE: SOUTH",
+        "entryway"
+      );
+    }
+
+    if (entryway === "WEST") {
+      addCell(
+        layoutStartRow,
+        entrywayLeftCol,
+        fieldHeight,
+        1,
+        "ENTRYWAY / ROAD SIDE: WEST",
+        "entryway-vertical"
+      );
+    }
+
+    if (entryway === "EAST") {
+      addCell(
+        layoutStartRow,
+        lastLayoutCol + 2,
+        fieldHeight,
+        1,
+        "ENTRYWAY / ROAD SIDE: EAST",
+        "entryway-vertical"
+      );
+    }
+
+    const maxRow = Math.max(...cells.map((c) => c.row + c.rowSpan - 1), lastLayoutRow + 4);
+    const maxCol = Math.max(...cells.map((c) => c.col + c.colSpan - 1), headerEndCol);
+
+    const colWidths = {};
+    const rowHeights = {};
+
+    for (let c = 1; c <= maxCol; c++) colWidths[c] = 16;
+    for (let r = 1; r <= maxRow; r++) rowHeights[r] = 8;
+
+    for (let r = 1; r <= 5; r++) rowHeights[r] = r === 1 ? 9 : 6;
+    for (let r = 7; r <= maxRow; r++) rowHeights[r] = 12;
+
+    spacerCols.forEach((c) => {
+      colWidths[c] = 2;
+    });
+
+    spacerRows.forEach((r) => {
+      rowHeights[r] = 2;
+    });
+
+    if (leftAxisCol) colWidths[leftAxisCol] = 15;
+    if (entrywayLeftCol) colWidths[entrywayLeftCol] = 6;
+
+    if (entryway === "EAST") colWidths[lastLayoutCol + 2] = 6;
+
+    function colX(col) {
+      let x = 0;
+      for (let c = 1; c < col; c++) x += colWidths[c] || 13;
+      return x;
+    }
+
+    function rowY(row) {
+      let y = 0;
+      for (let r = 1; r < row; r++) y += rowHeights[r] || 8;
+      return y;
+    }
+
+    function spanWidth(col, colSpan) {
+      let w = 0;
+      for (let c = col; c < col + colSpan; c++) w += colWidths[c] || 13;
+      return w;
+    }
+
+    function spanHeight(row, rowSpan) {
+      let h = 0;
+      for (let r = row; r < row + rowSpan; r++) h += rowHeights[r] || 8;
+      return h;
+    }
+
+    const contentWidth = spanWidth(1, maxCol);
+    const contentHeight = spanHeight(1, maxRow);
 
     const pdf = new jsPDF({
-      orientation: "landscape",
+      orientation: contentWidth >= contentHeight ? "landscape" : "portrait",
       unit: "mm",
-      format: "a4",
+      format: "legal",
     });
 
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
 
     const margin = 8;
-    const maxWidth = pageWidth - margin * 2;
-    const maxHeight = pageHeight - margin * 2;
+    const scale = Math.min(
+      (pageWidth - margin * 2) / contentWidth,
+      (pageHeight - margin * 2) / contentHeight
+    );
 
-    const imgWidth = canvas.width;
-    const imgHeight = canvas.height;
+    const offsetX = (pageWidth - contentWidth * scale) / 2;
+    const offsetY = (pageHeight - contentHeight * scale) / 2;
 
-    const scale = Math.min(maxWidth / imgWidth, maxHeight / imgHeight);
+    function drawText(text, x, y, w, h, fontSize, bold = false, rotate = false) {
+      pdf.setFont("helvetica", bold ? "bold" : "normal");
+      pdf.setFontSize(fontSize * scale);
 
-    const renderWidth = imgWidth * scale;
-    const renderHeight = imgHeight * scale;
+      const lines = String(text || "").split("\n").slice(0, 2);
 
-    const x = (pageWidth - renderWidth) / 2;
-    const y = (pageHeight - renderHeight) / 2;
+      if (rotate) {
+        pdf.text(String(text || ""), x + w / 2, y + h / 2, {
+          angle: 90,
+          align: "center",
+          baseline: "middle",
+        });
+        return;
+      }
 
-    pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight);
+      const lineHeight = fontSize * scale * 0.38;
+      const startY = y + h / 2 - ((lines.length - 1) * lineHeight) / 2;
 
-    const safeExperimentName = (experiment?.experiment_name || "experiment")
-      .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "_");
+      lines.forEach((line, index) => {
+        pdf.text(line, x + w / 2, startY + index * lineHeight, {
+          align: "center",
+          baseline: "middle",
+          maxWidth: w - 1.5,
+        });
+      });
+    }
+
+    function drawCell(cell) {
+      const x = offsetX + colX(cell.col) * scale;
+      const y = offsetY + rowY(cell.row) * scale;
+      const w = spanWidth(cell.col, cell.colSpan) * scale;
+      const h = spanHeight(cell.row, cell.rowSpan) * scale;
+
+      if (cell.type === "title") {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(14 * scale);
+        pdf.text(String(cell.value || ""), x, y + 6 * scale);
+        return;
+      }
+
+      if (cell.type === "meta") {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(9 * scale);
+        pdf.text(String(cell.value || ""), x, y + 4.5 * scale);
+        return;
+      }
+
+      if (cell.type === "entryway" || cell.type === "entryway-vertical") {
+        pdf.setFillColor(20, 83, 45);
+        pdf.setDrawColor(0, 0, 0);
+        pdf.rect(x, y, w, h, "FD");
+        pdf.setTextColor(255, 255, 255);
+        drawText(cell.value, x, y, w, h, 8, true, cell.type === "entryway-vertical");
+        pdf.setTextColor(0, 0, 0);
+        return;
+      }
+
+      if (cell.type === "header") {
+        pdf.setFillColor(238, 247, 241);
+        pdf.setDrawColor(0, 0, 0);
+        pdf.rect(x, y, w, h, "FD");
+        drawText(cell.value, x, y, w, h, 8, true);
+        return;
+      }
+
+      if (cell.type === "axis") {
+        pdf.setFillColor(248, 250, 248);
+        pdf.setDrawColor(34, 34, 34);
+        pdf.rect(x, y, w, h, "FD");
+        drawText(cell.value, x, y, w, h, 7, true);
+        return;
+      }
+
+      pdf.setFillColor(255, 255, 255);
+      pdf.setDrawColor(34, 34, 34);
+      pdf.rect(x, y, w, h, "FD");
+
+      if (cell.value) {
+        const [varietyLine, plotLine] = String(cell.value).split("\n");
+
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(Math.max(4.5, 6.5 * scale));
+        pdf.text(varietyLine || "", x + w / 2, y + h * 0.42, {
+          align: "center",
+          baseline: "middle",
+          maxWidth: w - 1,
+        });
+
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(Math.max(4.2, 6 * scale));
+        pdf.text(plotLine || "", x + w / 2, y + h * 0.67, {
+          align: "center",
+          baseline: "middle",
+          maxWidth: w - 1,
+        });
+      }
+    }
+
+    cells.forEach(drawCell);
 
     pdf.save(`${safeExperimentName}_layout.pdf`);
   }
@@ -220,13 +767,14 @@ function ExperimentDetailsPage() {
 
     const firstLayout = orderedLayouts[0];
 
-    const entryway = firstLayout?.entryway || "-";
+    const entryway = String(firstLayout?.entryway || "-").toUpperCase();
     const trialDirection = firstLayout?.trialDirection || "horizontal";
     const repDirection = firstLayout?.repDirection || "horizontal";
 
     const plotsAcross = Number(firstLayout?.plotsAcross || 1);
     const plotRowsDown = Number(firstLayout?.plotRowsDown || 1);
     const repCount = Number(experiment?.replications_per_trial || 1);
+    const rowsPerPlot = Number(experiment?.rows_per_plot || 0);
 
     const repOrder = firstLayout?.repOrder?.length
       ? firstLayout.repOrder
@@ -244,13 +792,78 @@ function ExperimentDetailsPage() {
         Number(experiment?.plant_spacing || 0)
     ).toFixed(2);
 
+    const plotGap = 1;
+    const repGap = 1;
+    const trialGap = 1;
+
+    const spacerCols = new Set();
+    const spacerRows = new Set();
+
+    const rowLabelsOnTop = trialDirection === "horizontal";
+    const rowLabelsOnLeft = trialDirection === "vertical";
+
+    const blockLabelsOnLeft = repDirection === "vertical";
+    const blockLabelsOnTop = repDirection === "horizontal";
+
+    const plotGridWidth = plotsAcross + Math.max(0, plotsAcross - 1) * plotGap;
+    const plotGridHeight = plotRowsDown + Math.max(0, plotRowsDown - 1) * plotGap;
+
+    const repBlockWidth = plotGridWidth;
+    const repBlockHeight = 1 + plotGridHeight;
+
+    const trialBlockWidth =
+      repDirection === "horizontal"
+        ? repOrder.length * repBlockWidth +
+          Math.max(0, repOrder.length - 1) * repGap
+        : repBlockWidth;
+
+    const trialBlockHeight =
+      1 +
+      (repDirection === "horizontal"
+        ? repBlockHeight
+        : repOrder.length * repBlockHeight +
+          Math.max(0, repOrder.length - 1) * repGap);
+
+    const fieldWidth =
+      trialDirection === "horizontal"
+        ? orderedLayouts.length * trialBlockWidth +
+          Math.max(0, orderedLayouts.length - 1) * trialGap
+        : trialBlockWidth;
+
+    const fieldHeight =
+      trialDirection === "vertical"
+        ? orderedLayouts.length * trialBlockHeight +
+          Math.max(0, orderedLayouts.length - 1) * trialGap
+        : trialBlockHeight;
+
+    const startRow = 7;
+    const startCol = 2;
+
+    let currentStartRow = startRow;
+    let currentStartCol = startCol;
+
+    const entrywayTopRow = entryway === "NORTH" ? currentStartRow++ : null;
+    const topAxisRow = rowLabelsOnTop || blockLabelsOnTop ? currentStartRow++ : null;
+
+    const entrywayLeftCol = entryway === "WEST" ? currentStartCol++ : null;
+    const leftAxisCol = rowLabelsOnLeft || blockLabelsOnLeft ? currentStartCol++ : null;
+
+    const layoutStartRow = currentStartRow;
+    const layoutStartCol = currentStartCol;
+
+    const lastLayoutRow = layoutStartRow + fieldHeight - 1;
+    const lastLayoutCol = layoutStartCol + fieldWidth - 1;
+    const headerEndCol = Math.max(lastLayoutCol + 3, 16);
+
     function groupByRep(assignments = []) {
       const grouped = {};
+
       assignments.forEach((a) => {
         const repNo = Number(a.replication_no);
         if (!grouped[repNo]) grouped[repNo] = [];
         grouped[repNo].push(a);
       });
+
       return grouped;
     }
 
@@ -271,28 +884,98 @@ function ExperimentDetailsPage() {
       return grid;
     }
 
+    function getTrialPosition(trialIndex) {
+      return {
+        row:
+          trialDirection === "vertical"
+            ? layoutStartRow + trialIndex * (trialBlockHeight + trialGap)
+            : layoutStartRow,
+        col:
+          trialDirection === "horizontal"
+            ? layoutStartCol + trialIndex * (trialBlockWidth + trialGap)
+            : layoutStartCol,
+      };
+    }
+
+    function getContinuousRowRange(trialIndex, localAxisIndex) {
+      if (!rowsPerPlot) return "";
+
+      const unitsPerTrial =
+        trialDirection === "horizontal" ? plotsAcross : plotRowsDown;
+
+      const axisIndex = Number(localAxisIndex) - 1;
+
+      const reversedAxisIndex =
+        entryway === "EAST" || entryway === "SOUTH"
+          ? unitsPerTrial - 1 - axisIndex
+          : axisIndex;
+
+      let effectiveTrialIndex = trialIndex;
+
+      if (entryway === "EAST" || entryway === "SOUTH") {
+        effectiveTrialIndex = orderedLayouts.length - 1 - trialIndex;
+      }
+
+      const globalUnitIndex =
+        effectiveTrialIndex * unitsPerTrial + reversedAxisIndex;
+
+      const start = globalUnitIndex * rowsPerPlot + 1;
+      const end = start + rowsPerPlot - 1;
+
+      return `Rows ${start}-${end}`;
+    }
+
+    function getPhysicalBlockIndex({ rowIndex, colIndex }) {
+      if (blockLabelsOnTop) {
+        if (entryway === "NORTH") return plotsAcross - colIndex;
+        return colIndex + 1;
+      }
+
+      if (entryway === "EAST") return plotRowsDown - rowIndex;
+      return rowIndex + 1;
+    }
+
+    function getBlockNo(repNo, blockIndex) {
+      const blocksPerRep = blockLabelsOnTop ? plotsAcross : plotRowsDown;
+      return (Number(repNo) - 1) * blocksPerRep + Number(blockIndex);
+    }
+
+    function setThinBorder(cell) {
+      cell.border = {
+        top: { style: "thin", color: { argb: "FF222222" } },
+        left: { style: "thin", color: { argb: "FF222222" } },
+        bottom: { style: "thin", color: { argb: "FF222222" } },
+        right: { style: "thin", color: { argb: "FF222222" } },
+      };
+    }
+
+    function setMediumBorder(cell) {
+      cell.border = {
+        top: { style: "medium", color: { argb: "FF000000" } },
+        left: { style: "medium", color: { argb: "FF000000" } },
+        bottom: { style: "medium", color: { argb: "FF000000" } },
+        right: { style: "medium", color: { argb: "FF000000" } },
+      };
+    }
+
     function stylePlot(cell) {
+      cell.font = { size: 8 };
       cell.alignment = {
         horizontal: "center",
         vertical: "middle",
         wrapText: true,
+        shrinkToFit: true,
       };
-      cell.font = { size: 8 };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: "FFF3F3F3" },
+        fgColor: { argb: "FFFFFFFF" },
       };
-      cell.border = {
-        top: { style: "thin", color: { argb: "FF999999" } },
-        left: { style: "thin", color: { argb: "FF999999" } },
-        bottom: { style: "thin", color: { argb: "FF999999" } },
-        right: { style: "thin", color: { argb: "FF999999" } },
-      };
+      setThinBorder(cell);
     }
 
     function styleHeader(cell) {
-      cell.font = { bold: true, size: 11 };
+      cell.font = { bold: true, size: 9 };
       cell.alignment = {
         horizontal: "center",
         vertical: "middle",
@@ -303,16 +986,11 @@ function ExperimentDetailsPage() {
         pattern: "solid",
         fgColor: { argb: "FFEEF7F1" },
       };
-      cell.border = {
-        top: { style: "thin", color: { argb: "FF999999" } },
-        left: { style: "thin", color: { argb: "FF999999" } },
-        bottom: { style: "thin", color: { argb: "FF999999" } },
-        right: { style: "thin", color: { argb: "FF999999" } },
-      };
+      setMediumBorder(cell);
     }
 
-    function styleEntryway(cell) {
-      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    function styleAxisLabel(cell) {
+      cell.font = { bold: true, size: 8 };
       cell.alignment = {
         horizontal: "center",
         vertical: "middle",
@@ -321,49 +999,39 @@ function ExperimentDetailsPage() {
       cell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: "FF14532D" },
+        fgColor: { argb: "FFF8FAF8" },
       };
+      setThinBorder(cell);
     }
 
-    const startRow = 7;
-    const startCol = 2;
-    const repGap = 1;
-    const trialGap = 2;
+    function styleEntryway(cell) {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+      cell.alignment = {
+        horizontal: "center",
+        vertical: "middle",
+        wrapText: true,
+        textRotation: cell.address.replace(/[0-9]/g, "") === "A" ? 90 : 0,
+      };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF14532D" },
+      };
+      setMediumBorder(cell);
+    }
 
-    const repBlockWidth = plotsAcross;
-    const repBlockHeight = plotRowsDown + 1;
+    function markSpacerCol(col) {
+      spacerCols.add(col);
+    }
 
-    const trialBlockWidth =
-      repDirection === "horizontal"
-        ? repOrder.length * repBlockWidth + (repOrder.length - 1) * repGap
-        : repBlockWidth;
-
-    const trialBlockHeight =
-      repDirection === "horizontal"
-        ? repBlockHeight
-        : repOrder.length * repBlockHeight + (repOrder.length - 1) * repGap;
-
-    const fieldWidth =
-      trialDirection === "horizontal"
-        ? orderedLayouts.length * trialBlockWidth +
-          (orderedLayouts.length - 1) * trialGap
-        : trialBlockWidth;
-
-    const fieldHeight =
-      trialDirection === "vertical"
-        ? orderedLayouts.length * trialBlockHeight +
-          (orderedLayouts.length - 1) * trialGap
-        : trialBlockHeight;
-
-    const layoutStartRow = entryway === "NORTH" ? startRow + 1 : startRow;
-    const layoutStartCol = entryway === "WEST" ? startCol + 1 : startCol;
-
-    const lastLayoutRow = layoutStartRow + fieldHeight - 1;
-    const lastLayoutCol = layoutStartCol + fieldWidth - 1;
-    const headerEndCol = Math.max(lastLayoutCol + 2, 16);
+    function markSpacerRow(row) {
+      spacerRows.add(row);
+    }
 
     worksheet.mergeCells(1, 1, 1, headerEndCol);
-    worksheet.getCell(1, 1).value = `${experiment?.experiment_name || "Experiment"} Layout`;
+    worksheet.getCell(1, 1).value = `${
+      experiment?.experiment_name || "Experiment"
+    } Layout`;
     worksheet.getCell(1, 1).font = { bold: true, size: 16 };
 
     worksheet.mergeCells(2, 1, 2, headerEndCol);
@@ -387,7 +1055,98 @@ function ExperimentDetailsPage() {
     worksheet.getCell(5, 1).value =
       `Entryway: ${entryway} | Replications: ${repDirection} | Trials: ${trialDirection}`;
 
-    function drawTrial(layout, baseRow, baseCol) {
+    function drawTopAxisLabels() {
+      if (!topAxisRow) return;
+
+      if (rowLabelsOnTop) {
+        orderedLayouts.forEach((layout, trialIndex) => {
+          const { col: trialCol } = getTrialPosition(trialIndex);
+
+          for (let c = 0; c < plotsAcross; c++) {
+            const excelCol = trialCol + c * (1 + plotGap);
+
+            const cell = worksheet.getCell(topAxisRow, excelCol);
+            cell.value = getContinuousRowRange(trialIndex, c + 1);
+            styleAxisLabel(cell);
+
+            if (c < plotsAcross - 1) {
+              markSpacerCol(excelCol + 1);
+            }
+          }
+        });
+      }
+
+      if (blockLabelsOnTop) {
+        repOrder.forEach((repNo, repIndex) => {
+          const repCol = layoutStartCol + repIndex * (repBlockWidth + repGap);
+
+          for (let c = 0; c < plotsAcross; c++) {
+            const excelCol = repCol + c * (1 + plotGap);
+            const blockIndex = getPhysicalBlockIndex({
+              rowIndex: 0,
+              colIndex: c,
+            });
+
+            const cell = worksheet.getCell(topAxisRow, excelCol);
+            cell.value = `Blk ${getBlockNo(repNo, blockIndex)}`;
+            styleAxisLabel(cell);
+
+            if (c < plotsAcross - 1) {
+              markSpacerCol(excelCol + 1);
+            }
+          }
+        });
+      }
+    }
+
+    function drawLeftAxisLabels() {
+      if (!leftAxisCol) return;
+
+      if (blockLabelsOnLeft) {
+        repOrder.forEach((repNo, repIndex) => {
+          const repRow = layoutStartRow + 1 + repIndex * (repBlockHeight + repGap);
+
+          for (let r = 0; r < plotRowsDown; r++) {
+            const excelRow = repRow + 1 + r * (1 + plotGap);
+            const blockIndex = getPhysicalBlockIndex({
+              rowIndex: r,
+              colIndex: 0,
+            });
+
+            const cell = worksheet.getCell(excelRow, leftAxisCol);
+            cell.value = `Blk ${getBlockNo(repNo, blockIndex)}`;
+            styleAxisLabel(cell);
+
+            if (r < plotRowsDown - 1) {
+              markSpacerRow(excelRow + 1);
+            }
+          }
+        });
+      }
+
+      if (rowLabelsOnLeft) {
+        orderedLayouts.forEach((layout, trialIndex) => {
+          const { row: trialRow } = getTrialPosition(trialIndex);
+          const firstRepPlotStartRow = trialRow + 2;
+
+          for (let r = 0; r < plotRowsDown; r++) {
+            const excelRow = firstRepPlotStartRow + r * (1 + plotGap);
+
+            const cell = worksheet.getCell(excelRow, leftAxisCol);
+            cell.value = getContinuousRowRange(trialIndex, r + 1);
+            styleAxisLabel(cell);
+
+            if (r < plotRowsDown - 1) {
+              markSpacerRow(excelRow + 1);
+            }
+          }
+        });
+      }
+    }
+
+    function drawTrial(layout, trialIndex) {
+      const { row: baseRow, col: baseCol } = getTrialPosition(trialIndex);
+
       worksheet.mergeCells(baseRow, baseCol, baseRow, baseCol + trialBlockWidth - 1);
       const trialHeader = worksheet.getCell(baseRow, baseCol);
       trialHeader.value = layout.trial_name || `Trial ${layout.trial_number}`;
@@ -406,7 +1165,7 @@ function ExperimentDetailsPage() {
             ? baseCol + repIndex * (repBlockWidth + repGap)
             : baseCol;
 
-        worksheet.mergeCells(repRow, repCol, repRow, repCol + plotsAcross - 1);
+        worksheet.mergeCells(repRow, repCol, repRow, repCol + repBlockWidth - 1);
         const repHeader = worksheet.getCell(repRow, repCol);
         repHeader.value = `REP ${repNo}`;
         styleHeader(repHeader);
@@ -415,31 +1174,63 @@ function ExperimentDetailsPage() {
 
         grid.forEach((row, r) => {
           row.forEach((plot, c) => {
-            const cell = worksheet.getCell(repRow + 1 + r, repCol + c);
-            cell.value = plot ? `${plot.variety_name}\nP${plot.plot_no}` : "";
+            const excelRow = repRow + 1 + r * (1 + plotGap);
+            const excelCol = repCol + c * (1 + plotGap);
+
+            const cell = worksheet.getCell(excelRow, excelCol);
+            const plotNumber =
+              plot?.plot_no ||
+              plot?.plot_number ||
+              plot?.plotNo ||
+              plot?.plot_id ||
+              plot?.id ||
+              "-";
+
+            cell.value = plot
+              ? `${plot.variety_name || ""}\nPlot ${plotNumber}`
+              : "";
             stylePlot(cell);
+
+            if (c < plotsAcross - 1) {
+              markSpacerCol(excelCol + 1);
+            }
           });
+
+          if (r < plotRowsDown - 1) {
+            markSpacerRow(repRow + 1 + r * (1 + plotGap) + 1);
+          }
         });
+
+        if (repDirection === "horizontal" && repIndex < repOrder.length - 1) {
+          markSpacerCol(repCol + repBlockWidth);
+        }
+
+        if (repDirection === "vertical" && repIndex < repOrder.length - 1) {
+          markSpacerRow(repRow + repBlockHeight);
+        }
       });
     }
 
+    drawTopAxisLabels();
+    drawLeftAxisLabels();
+
     orderedLayouts.forEach((layout, trialIndex) => {
-      const trialRow =
-        trialDirection === "vertical"
-          ? layoutStartRow + trialIndex * (trialBlockHeight + trialGap)
-          : layoutStartRow;
+      drawTrial(layout, trialIndex);
 
-      const trialCol =
-        trialDirection === "horizontal"
-          ? layoutStartCol + trialIndex * (trialBlockWidth + trialGap)
-          : layoutStartCol;
+      const { row: trialRow, col: trialCol } = getTrialPosition(trialIndex);
 
-      drawTrial(layout, trialRow, trialCol);
+      if (trialDirection === "horizontal" && trialIndex < orderedLayouts.length - 1) {
+        markSpacerCol(trialCol + trialBlockWidth);
+      }
+
+      if (trialDirection === "vertical" && trialIndex < orderedLayouts.length - 1) {
+        markSpacerRow(trialRow + trialBlockHeight);
+      }
     });
 
     if (entryway === "NORTH") {
-      worksheet.mergeCells(startRow, layoutStartCol, startRow, lastLayoutCol);
-      const cell = worksheet.getCell(startRow, layoutStartCol);
+      worksheet.mergeCells(entrywayTopRow, layoutStartCol, entrywayTopRow, lastLayoutCol);
+      const cell = worksheet.getCell(entrywayTopRow, layoutStartCol);
       cell.value = "ENTRYWAY / ROAD SIDE: NORTH";
       styleEntryway(cell);
     }
@@ -453,8 +1244,8 @@ function ExperimentDetailsPage() {
     }
 
     if (entryway === "WEST") {
-      worksheet.mergeCells(layoutStartRow, startCol, lastLayoutRow, startCol);
-      const cell = worksheet.getCell(layoutStartRow, startCol);
+      worksheet.mergeCells(layoutStartRow, entrywayLeftCol, lastLayoutRow, entrywayLeftCol);
+      const cell = worksheet.getCell(layoutStartRow, entrywayLeftCol);
       cell.value = "ENTRYWAY / ROAD SIDE: WEST";
       styleEntryway(cell);
     }
@@ -465,15 +1256,28 @@ function ExperimentDetailsPage() {
       const cell = worksheet.getCell(layoutStartRow, col);
       cell.value = "ENTRYWAY / ROAD SIDE: EAST";
       styleEntryway(cell);
+      worksheet.getColumn(col).width = 3;
     }
 
     for (let c = 1; c <= headerEndCol + 3; c++) {
-      worksheet.getColumn(c).width = 13;
+      worksheet.getColumn(c).width = 9;
     }
 
-    for (let r = 1; r <= lastLayoutRow + 4; r++) {
-      worksheet.getRow(r).height = 34;
+    spacerCols.forEach((col) => {
+      worksheet.getColumn(col).width = 0.8;
+    });
+
+    if (leftAxisCol) {
+      worksheet.getColumn(leftAxisCol).width = 8.5;
     }
+
+    for (let r = 1; r <= lastLayoutRow + 5; r++) {
+      worksheet.getRow(r).height = 32;
+    }
+
+    spacerRows.forEach((row) => {
+      worksheet.getRow(row).height = 5;
+    });
 
     worksheet.getRow(1).height = 24;
     worksheet.getRow(2).height = 18;
@@ -488,12 +1292,12 @@ function ExperimentDetailsPage() {
       fitToWidth: 1,
       fitToHeight: 1,
       margins: {
-        left: 0.25,
-        right: 0.25,
-        top: 0.4,
-        bottom: 0.4,
-        header: 0.2,
-        footer: 0.2,
+        left: 0.2,
+        right: 0.2,
+        top: 0.35,
+        bottom: 0.35,
+        header: 0.15,
+        footer: 0.15,
       },
     };
 
@@ -802,11 +1606,11 @@ function ExperimentDetailsPage() {
           </button>
 
           <button className="wf-btn wf-btn-secondary" onClick={handleExportPDF}>
-            Export PDF
+            Export Layout PDF
           </button>
 
           <button className="wf-btn wf-btn-secondary" onClick={handleExportExcel}>
-            Export Excel
+            Export Layout Excel
           </button>
 
           <button

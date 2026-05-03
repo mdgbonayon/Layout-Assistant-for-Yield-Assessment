@@ -1,4 +1,5 @@
 import { generateDesignAssignments } from "./designRandomization";
+import { getOrientationForEntryway } from "./orientationUtils";
 
 export function round2(value) {
   return Number(value || 0).toFixed(2);
@@ -16,10 +17,7 @@ export function getPlotDimensions({
     (Number(plantsPerRow) - 1) * Number(plantSpacing)
   );
 
-  return {
-    plotWidth,
-    plotHeight,
-  };
+  return { plotWidth, plotHeight };
 }
 
 export function getGridCandidates(plotsPerRep) {
@@ -28,13 +26,12 @@ export function getGridCandidates(plotsPerRep) {
   for (let plotRowsDown = 1; plotRowsDown <= plotsPerRep; plotRowsDown++) {
     const plotsAcross = Math.ceil(plotsPerRep / plotRowsDown);
     const totalSlots = plotsAcross * plotRowsDown;
-    const emptySlots = totalSlots - plotsPerRep;
 
     candidates.push({
       plotsAcross,
       plotRowsDown,
       totalSlots,
-      emptySlots,
+      emptySlots: totalSlots - plotsPerRep,
     });
   }
 
@@ -48,15 +45,11 @@ export function computeReplicationSize({
   plotHeight,
   alley,
 }) {
-  const replicationWidth =
-    plotsAcross * plotWidth + Math.max(0, plotsAcross - 1) * alley;
-
-  const replicationHeight =
-    plotRowsDown * plotHeight + Math.max(0, plotRowsDown - 1) * alley;
-
   return {
-    replicationWidth,
-    replicationHeight,
+    replicationWidth:
+      plotsAcross * plotWidth + Math.max(0, plotsAcross - 1) * alley,
+    replicationHeight:
+      plotRowsDown * plotHeight + Math.max(0, plotRowsDown - 1) * alley,
   };
 }
 
@@ -70,8 +63,8 @@ export function computeExperimentSize({
   repDirection,
   trialDirection,
 }) {
-  let trialWidth = 0;
-  let trialHeight = 0;
+  let trialWidth;
+  let trialHeight;
 
   if (repDirection === "vertical") {
     trialWidth = replicationWidth;
@@ -85,27 +78,20 @@ export function computeExperimentSize({
     trialHeight = replicationHeight;
   }
 
-  let experimentWidth = 0;
-  let experimentHeight = 0;
+  let experimentWidth;
+  let experimentHeight;
 
   if (trialDirection === "horizontal") {
     experimentWidth =
-      numberOfTrials * trialWidth +
-      Math.max(0, numberOfTrials - 1) * trialGap;
+      numberOfTrials * trialWidth + Math.max(0, numberOfTrials - 1) * trialGap;
     experimentHeight = trialHeight;
   } else {
     experimentWidth = trialWidth;
     experimentHeight =
-      numberOfTrials * trialHeight +
-      Math.max(0, numberOfTrials - 1) * trialGap;
+      numberOfTrials * trialHeight + Math.max(0, numberOfTrials - 1) * trialGap;
   }
 
-  return {
-    trialWidth,
-    trialHeight,
-    experimentWidth,
-    experimentHeight,
-  };
+  return { trialWidth, trialHeight, experimentWidth, experimentHeight };
 }
 
 export function scoreLayout({
@@ -124,6 +110,7 @@ export function scoreLayout({
 
   const overflowWidth = Math.max(0, experimentWidth - fieldWidth);
   const overflowHeight = Math.max(0, experimentHeight - fieldHeight);
+
   const overflowArea =
     overflowWidth * Math.max(fieldHeight, experimentHeight) +
     overflowHeight * Math.max(fieldWidth, experimentWidth);
@@ -156,7 +143,6 @@ export function scoreLayout({
   shapePenalty += emptySlots * 2000;
 
   let score = 0;
-
   if (fitsByDimensions) score += 1000000;
 
   score -= overflowArea * 10000;
@@ -190,14 +176,16 @@ export function findBestExperimentLayout({
   fieldWidth,
   fieldHeight,
   trialGap,
+  entryway = "SOUTH",
 }) {
-  const gridCandidates = getGridCandidates(plotsPerReplication);
+  const gridCandidates = getGridCandidates(Number(plotsPerReplication));
+  const forcedOrientation = getOrientationForEntryway(entryway);
 
   const orientationCandidates = [
-    { repDirection: "vertical", trialDirection: "horizontal" },
-    { repDirection: "vertical", trialDirection: "vertical" },
-    { repDirection: "horizontal", trialDirection: "horizontal" },
-    { repDirection: "horizontal", trialDirection: "vertical" },
+    {
+      repDirection: forcedOrientation.repDirection,
+      trialDirection: forcedOrientation.trialDirection,
+    },
   ];
 
   let bestOption = null;
@@ -257,10 +245,7 @@ export function findBestExperimentLayout({
     }
   }
 
-  return {
-    best: bestOption,
-    candidates,
-  };
+  return { best: bestOption, candidates };
 }
 
 export function getSnakeGrid(items, plotsAcross) {
@@ -270,9 +255,7 @@ export function getSnakeGrid(items, plotsAcross) {
     const rowIndex = rows.length;
     const slice = items.slice(i, i + plotsAcross);
 
-    if (rowIndex % 2 === 1) {
-      slice.reverse();
-    }
+    if (rowIndex % 2 === 1) slice.reverse();
 
     rows.push(slice);
   }
@@ -293,6 +276,7 @@ export function buildTrialLayout({
   fieldWidth = 999999,
   fieldHeight = 999999,
   trialGap = null,
+  entryway = "SOUTH",
 }) {
   const { plotWidth, plotHeight } = getPlotDimensions({
     rowsPerPlot,
@@ -314,6 +298,7 @@ export function buildTrialLayout({
     fieldWidth: Number(fieldWidth),
     fieldHeight: Number(fieldHeight),
     trialGap: resolvedTrialGap,
+    entryway,
   });
 
   const best = bestLayoutResult.best;
@@ -346,6 +331,7 @@ export function buildTrialLayout({
     fitsField: best.fits,
     score: best.score,
     evaluatedCandidates: bestLayoutResult.candidates,
+    entryway,
     replications,
   };
 }

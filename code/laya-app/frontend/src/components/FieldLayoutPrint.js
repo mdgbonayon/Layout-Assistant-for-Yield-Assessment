@@ -16,7 +16,7 @@ function orderLayoutsByTrialOrder(layouts = []) {
 function normalizeEntryway(entryway) {
   return String(entryway || "")
     .trim()
-    .toLowerCase()
+    .toUpperCase()
     .replace(/\s+/g, "")
     .replace(/_/g, "");
 }
@@ -25,27 +25,27 @@ function formatEntryway(entryway) {
   const normalized = normalizeEntryway(entryway);
 
   const labels = {
-    north: "NORTH",
-    south: "SOUTH",
-    east: "EAST",
-    west: "WEST",
-    northeast: "NORTH EAST",
-    northwest: "NORTH WEST",
-    southeast: "SOUTH EAST",
-    southwest: "SOUTH WEST",
+    NORTH: "NORTH",
+    SOUTH: "SOUTH",
+    EAST: "EAST",
+    WEST: "WEST",
+    NORTHEAST: "NORTH EAST",
+    NORTHWEST: "NORTH WEST",
+    SOUTHEAST: "SOUTH EAST",
+    SOUTHWEST: "SOUTH WEST",
   };
 
-  return labels[normalized] || String(entryway || "").toUpperCase();
+  return labels[normalized] || String(entryway || "-").toUpperCase();
 }
 
-function groupAssignmentsByReplication(assignments = []) {
+function groupByRep(assignments = []) {
   const grouped = {};
 
-  for (const a of assignments) {
-    const rep = Number(a.replication_no || 0);
-    if (!grouped[rep]) grouped[rep] = [];
-    grouped[rep].push(a);
-  }
+  assignments.forEach((a) => {
+    const repNo = Number(a.replication_no);
+    if (!grouped[repNo]) grouped[repNo] = [];
+    grouped[repNo].push(a);
+  });
 
   return grouped;
 }
@@ -67,16 +67,14 @@ function buildGrid(assignments = [], rowsDown, colsAcross) {
   return grid;
 }
 
-function EntrywayIndicator({ entryway }) {
-  const normalized = normalizeEntryway(entryway);
-
-  if (!normalized || normalized === "-") return null;
-
+function getPlotNumber(plot) {
   return (
-    <div className={`entryway-indicator entryway-${normalized}`}>
-      <div className="entryway-title">ENTRYWAY</div>
-      <div className="entryway-side">{formatEntryway(entryway)}</div>
-    </div>
+    plot?.plot_no ||
+    plot?.plot_number ||
+    plot?.plotNo ||
+    plot?.plot_id ||
+    plot?.id ||
+    "-"
   );
 }
 
@@ -84,123 +82,287 @@ export default function FieldLayoutPrint({ layouts = [], experiment = {} }) {
   const orderedLayouts = orderLayoutsByTrialOrder(layouts);
   const firstLayout = orderedLayouts[0];
 
-  const entryway = firstLayout?.entryway || experiment.entryway || "-";
-  const normalizedEntryway = normalizeEntryway(entryway);
+  if (!firstLayout) {
+    return <div className="excel-pdf-container">No layout available.</div>;
+  }
 
-  const repDirection = firstLayout?.repDirection || "-";
-  const trialDirection = firstLayout?.trialDirection || "-";
+  const entryway = normalizeEntryway(
+    firstLayout?.entryway || experiment?.entryway || "-"
+  );
+
+  const entrywayLabel = formatEntryway(entryway);
+
+  const trialDirection = firstLayout?.trialDirection || "horizontal";
+  const repDirection = firstLayout?.repDirection || "horizontal";
 
   const plotsAcross = Number(firstLayout?.plotsAcross || 1);
   const plotRowsDown = Number(firstLayout?.plotRowsDown || 1);
-  const repCount = Number(experiment.replications_per_trial || 1);
+  const repCount = Number(experiment?.replications_per_trial || 1);
+  const rowsPerPlot = Number(experiment?.rows_per_plot || 0);
 
   const repOrder = firstLayout?.repOrder?.length
     ? firstLayout.repOrder
     : Array.from({ length: repCount }, (_, i) => i + 1);
 
+  const rowLabelsOnTop = trialDirection === "horizontal";
+  const rowLabelsOnLeft = trialDirection === "vertical";
+
+  const blockLabelsOnTop = repDirection === "horizontal";
+  const blockLabelsOnLeft = repDirection === "vertical";
+
+  const showTopAxis = rowLabelsOnTop || blockLabelsOnTop;
+  const showLeftAxis = rowLabelsOnLeft || blockLabelsOnLeft;
+
   const rowLength = Math.max(
     0,
-    Number(experiment.plants_per_row || 0) *
-      Number(experiment.plant_spacing || 0) -
-      Number(experiment.plant_spacing || 0)
+    Number(experiment?.plants_per_row || 0) *
+      Number(experiment?.plant_spacing || 0) -
+      Number(experiment?.plant_spacing || 0)
   ).toFixed(2);
 
-  const fieldDirection =
-    firstLayout?.trialDirection === "vertical" ? "column" : "row";
+  function getContinuousRowRange(trialIndex, localAxisIndex) {
+    if (!rowsPerPlot) return "";
+
+    const unitsPerTrial =
+      trialDirection === "horizontal" ? plotsAcross : plotRowsDown;
+
+    const axisIndex = Number(localAxisIndex) - 1;
+
+    const reversedAxisIndex =
+      entryway === "EAST" || entryway === "SOUTH"
+        ? unitsPerTrial - 1 - axisIndex
+        : axisIndex;
+
+    let effectiveTrialIndex = trialIndex;
+
+    if (entryway === "EAST" || entryway === "SOUTH") {
+      effectiveTrialIndex = orderedLayouts.length - 1 - trialIndex;
+    }
+
+    const globalUnitIndex =
+      effectiveTrialIndex * unitsPerTrial + reversedAxisIndex;
+
+    const start = globalUnitIndex * rowsPerPlot + 1;
+    const end = start + rowsPerPlot - 1;
+
+    return `Rows ${start}-${end}`;
+  }
+
+  function getPhysicalBlockIndex({ rowIndex, colIndex }) {
+    if (blockLabelsOnTop) {
+      if (entryway === "NORTH") return plotsAcross - colIndex;
+      return colIndex + 1;
+    }
+
+    if (entryway === "EAST") return plotRowsDown - rowIndex;
+    return rowIndex + 1;
+  }
+
+  function getBlockNo(repNo, blockIndex) {
+    const blocksPerRep = blockLabelsOnTop ? plotsAcross : plotRowsDown;
+    return (Number(repNo) - 1) * blocksPerRep + Number(blockIndex);
+  }
+
+  function renderTopAxisForTrial(trialIndex) {
+    if (!showTopAxis) return null;
+
+    return (
+      <div className="pdf-top-axis-row">
+        {showLeftAxis && <div className="pdf-axis-corner" />}
+
+        <div
+          className="pdf-top-axis-main"
+          style={{
+            gridTemplateColumns:
+              repDirection === "horizontal"
+                ? `repeat(${repOrder.length}, auto)`
+                : "auto",
+          }}
+        >
+          {repOrder.map((repNo) => (
+            <div
+              key={`top-axis-${trialIndex}-${repNo}`}
+              className="pdf-rep-axis"
+              style={{
+                gridTemplateColumns: `repeat(${plotsAcross}, var(--plot-w))`,
+              }}
+            >
+              {Array.from({ length: plotsAcross }, (_, c) => {
+                const blockIndex = getPhysicalBlockIndex({
+                  rowIndex: 0,
+                  colIndex: c,
+                });
+
+                const label = blockLabelsOnTop
+                  ? `Blk ${getBlockNo(repNo, blockIndex)}`
+                  : rowLabelsOnTop
+                    ? getContinuousRowRange(trialIndex, c + 1)
+                    : "";
+
+                return (
+                  <div key={c} className="pdf-axis-cell">
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderLeftAxis(repNo, trialIndex, shouldShowLabels) {
+    if (!showLeftAxis) return null;
+
+    return (
+      <div className="pdf-left-axis">
+        {Array.from({ length: plotRowsDown }, (_, r) => {
+          const blockIndex = getPhysicalBlockIndex({
+            rowIndex: r,
+            colIndex: 0,
+          });
+
+          const label = shouldShowLabels
+            ? blockLabelsOnLeft
+              ? `Blk ${getBlockNo(repNo, blockIndex)}`
+              : getContinuousRowRange(trialIndex, r + 1)
+            : "";
+
+          return (
+            <div
+              key={`${repNo}-${trialIndex}-${r}`}
+              className={`pdf-axis-cell pdf-left-axis-cell ${
+                shouldShowLabels ? "" : "pdf-axis-placeholder"
+              }`}
+            >
+              {label}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderEntryway() {
+    if (!entryway || entryway === "-") return null;
+
+    return (
+      <div className="pdf-entryway">
+        ENTRYWAY / ROAD SIDE: {entrywayLabel}
+      </div>
+    );
+  }
 
   return (
-    <div className="print-container">
-      <div className="print-header">
-        <div className="print-title">
-          {experiment.experiment_name || "Experiment"}
+    <div className="excel-pdf-container">
+      <div className="excel-pdf-header">
+        <div className="excel-pdf-title">
+          {experiment?.experiment_name || "Experiment"} Layout
         </div>
 
-        <div className="print-meta">
-          <strong>Location:</strong> {experiment.location || ""}
+        <div className="excel-pdf-meta">Location: {experiment?.location || ""}</div>
+
+        <div className="excel-pdf-meta">
+          {experiment?.replications_per_trial || 0} replications,{" "}
+          {experiment?.varieties_per_replication || 0} plots/rep,{" "}
+          {experiment?.rows_per_plot || 0} rows/plot,{" "}
+          {experiment?.plants_per_row || 0} plants/row
         </div>
 
-        <div className="print-meta">
-          {experiment.replications_per_trial || 0} replications,{" "}
-          {experiment.varieties_per_replication || 0} plots/rep,{" "}
-          {experiment.rows_per_plot || 0} rows/plot,{" "}
-          {experiment.plants_per_row || 0} plants/row
+        <div className="excel-pdf-meta">
+          Spacing: {Number(experiment?.plant_spacing || 0).toFixed(2)}m x{" "}
+          {Number(experiment?.row_spacing || 0).toFixed(2)}m | Row Length:{" "}
+          {rowLength}m | Alley:{" "}
+          {Number(experiment?.alleyway_spacing || 0).toFixed(2)}m
         </div>
 
-        <div className="print-meta">
-          <strong>Spacing:</strong>{" "}
-          {Number(experiment.plant_spacing || 0).toFixed(2)}m x{" "}
-          {Number(experiment.row_spacing || 0).toFixed(2)}m |{" "}
-          <strong>Row Length:</strong> {rowLength}m |{" "}
-          <strong>Alley:</strong>{" "}
-          {Number(experiment.alleyway_spacing || 0).toFixed(2)}m
-        </div>
-
-        <div className="print-meta">
-          <strong>Entryway:</strong> {formatEntryway(entryway)} |{" "}
-          <strong>Replications:</strong> {repDirection} |{" "}
-          <strong>Trials:</strong> {trialDirection}
+        <div className="excel-pdf-meta">
+          Entryway: {entrywayLabel} | Replications: {repDirection} | Trials:{" "}
+          {trialDirection}
         </div>
       </div>
 
-      <div className={`field-wrapper field-entry-${normalizedEntryway}`}>
-        <EntrywayIndicator entryway={entryway} />
+      {(entryway === "NORTH" ||
+        entryway === "NORTHEAST" ||
+        entryway === "NORTHWEST") &&
+        renderEntryway()}
 
-        <div
-          className="field-layout"
-          style={{
-            flexDirection: fieldDirection,
-          }}
-        >
-          {orderedLayouts.map((layout) => {
-            const grouped = groupAssignmentsByReplication(
-              layout.assignments || []
-            );
+      <div
+        className="pdf-layout-body"
+        style={{
+          flexDirection: trialDirection === "vertical" ? "column" : "row",
+        }}
+      >
+        {orderedLayouts.map((layout, trialIndex) => {
+          const grouped = groupByRep(layout.assignments || []);
 
-            return (
-              <div
-                key={layout.id || layout.trial_id}
-                className="trial-print-block"
-              >
-                <div className="trial-header">
+          const shouldShowTopAxis =
+            showTopAxis &&
+            (trialDirection === "horizontal" || trialIndex === 0);
+
+          return (
+            <div
+              key={layout.id || layout.trial_number}
+              className="pdf-trial-block"
+            >
+              {shouldShowTopAxis && renderTopAxisForTrial(trialIndex)}
+
+              <div className="pdf-trial-title-row">
+                {showLeftAxis && <div className="pdf-axis-corner" />}
+                <div className="pdf-trial-title">
                   {layout.trial_name || `Trial ${layout.trial_number}`}
                 </div>
+              </div>
 
-                <div
-                  className="replications-print-wrap"
-                  style={{
-                    flexDirection:
-                      layout.repDirection === "horizontal" ? "row" : "column",
-                  }}
-                >
-                  {repOrder.map((repNo) => {
-                    const repAssignments = grouped[repNo] || [];
-                    const grid = buildGrid(
-                      repAssignments,
-                      plotRowsDown,
-                      plotsAcross
-                    );
+              <div
+                className="pdf-replications"
+                style={{
+                  flexDirection:
+                    repDirection === "horizontal" ? "row" : "column",
+                }}
+              >
+                {repOrder.map((repNo, repIndex) => {
+                  const grid = buildGrid(
+                    grouped[repNo] || [],
+                    plotRowsDown,
+                    plotsAcross
+                  );
 
-                    return (
-                      <div key={repNo} className="replication-print-block">
-                        <div className="rep-label">REP {repNo}</div>
+                  const shouldShowLeftLabels =
+                    showLeftAxis &&
+                    (trialDirection === "vertical"
+                      ? true
+                      : trialIndex === 0) &&
+                    (repDirection === "vertical" || repIndex === 0);
 
-                        <div className="trial-block">
-                          {grid.map((row, rIdx) => (
-                            <div key={rIdx} className="plot-row">
-                              {row.map((plot, cIdx) => (
+                  return (
+                    <div key={repNo} className="pdf-rep-section">
+                      <div className="pdf-rep-title-row">
+                        {showLeftAxis && <div className="pdf-axis-corner" />}
+                        <div className="pdf-rep-title">REP {repNo}</div>
+                      </div>
+
+                      <div className="pdf-rep-content">
+                        {renderLeftAxis(repNo, trialIndex, shouldShowLeftLabels)}
+
+                        <div className="pdf-plot-grid">
+                          {grid.map((row, r) => (
+                            <div key={r} className="pdf-plot-row">
+                              {row.map((plot, c) => (
                                 <div
-                                  key={`${repNo}-${rIdx}-${cIdx}`}
-                                  className={`plot-box ${
-                                    plot ? "" : "plot-box-empty"
+                                  key={`${repNo}-${r}-${c}`}
+                                  className={`pdf-plot-cell ${
+                                    plot ? "" : "pdf-plot-empty"
                                   }`}
                                 >
                                   {plot && (
                                     <>
-                                      <div className="plot-name">
+                                      <div className="pdf-variety">
                                         {plot.variety_name || ""}
                                       </div>
-                                      <div className="plot-meta">
-                                        P{plot.plot_no || ""}
+                                      <div className="pdf-plot-no">
+                                        Plot {getPlotNumber(plot)}
                                       </div>
                                     </>
                                   )}
@@ -210,14 +372,19 @@ export default function FieldLayoutPrint({ layouts = [], experiment = {} }) {
                           ))}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
+
+      {(entryway === "SOUTH" ||
+        entryway === "SOUTHEAST" ||
+        entryway === "SOUTHWEST") &&
+        renderEntryway()}
     </div>
   );
 }

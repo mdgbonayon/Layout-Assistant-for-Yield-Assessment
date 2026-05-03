@@ -5,6 +5,28 @@ function LayoutDiagram({ trialLayout }) {
 
   const layout = trialLayout;
 
+  const entryway = String(layout.entrywaySide || layout.entryway || "SOUTH").toUpperCase();
+
+  const replications = [...layout.replications];
+
+  const shouldReverseReps =
+    entryway === "NORTH" || entryway === "EAST";
+
+  const orderedReps = shouldReverseReps
+    ? [...replications].reverse()
+    : replications;
+
+  const isHorizontal =
+    entryway === "NORTH" || entryway === "SOUTH";
+
+  const roadsideLabelPosition = (() => {
+    if (entryway === "NORTH") return "top";
+    if (entryway === "SOUTH") return "bottom";
+    if (entryway === "WEST") return "left";
+    if (entryway === "EAST") return "right";
+    return "bottom";
+  })();
+
   return (
     <div className="wf-layout-diagram">
       <div className="wf-layout-meta">
@@ -22,43 +44,57 @@ function LayoutDiagram({ trialLayout }) {
           {round2(layout.replicationWidth)} m ×{" "}
           {round2(layout.replicationHeight)} m
         </div>
+
         {layout.trialWidth != null && layout.trialHeight != null && (
           <div>
             <strong>Trial Footprint:</strong>{" "}
             {round2(layout.trialWidth)} m × {round2(layout.trialHeight)} m
           </div>
         )}
+
         {layout.experimentWidth != null && layout.experimentHeight != null && (
           <div>
             <strong>Experiment Footprint:</strong>{" "}
             {round2(layout.experimentWidth)} m × {round2(layout.experimentHeight)} m
           </div>
         )}
-        {layout.repDirection && (
-          <div>
-            <strong>Replications Direction:</strong> {layout.repDirection}
-          </div>
-        )}
-        {layout.trialDirection && (
-          <div>
-            <strong>Trials Direction:</strong> {layout.trialDirection}
-          </div>
-        )}
+
+        <div>
+          <strong>Entryway:</strong> {entryway}
+        </div>
+
+        <div>
+          <strong>Replications:</strong> {layout.repDirection}
+        </div>
+
+        <div>
+          <strong>Trials:</strong> {layout.trialDirection}
+        </div>
       </div>
+
+      {roadsideLabelPosition === "top" && (
+        <div className="wf-roadside-label">ENTRYWAY {entryway}</div>
+      )}
 
       <div
         className="wf-layout-replications"
         style={{
           display: "flex",
-          flexDirection: layout.repDirection === "horizontal" ? "row" : "column",
+          flexDirection: isHorizontal ? "row" : "column",
           gap: "16px",
           alignItems: "flex-start",
           flexWrap: "nowrap",
         }}
       >
-        {layout.replications.map((rep) => (
+        {roadsideLabelPosition === "left" && (
+          <div className="wf-roadside-label vertical">ENTRYWAY {entryway}</div>
+        )}
+
+        {orderedReps.map((rep) => (
           <div key={rep.replicationNo} className="wf-replication-block">
-            <div className="wf-replication-label">REP {rep.replicationNo}</div>
+            <div className="wf-replication-label">
+              REP {rep.replicationNo}
+            </div>
 
             <div
               className="wf-replication-grid"
@@ -70,32 +106,46 @@ function LayoutDiagram({ trialLayout }) {
             >
               {Array.from({ length: layout.plotRowsDown }).flatMap((_, rowIndex) => {
                 const row = rep.rows?.[rowIndex] || [];
-                const rowCells = [];
 
-                for (let col = 0; col < layout.plotsAcross; col++) {
-                  const item = row[col];
+                let displayRow =
+                  rowIndex % 2 === 1 ? [...row].reverse() : row;
 
-                  rowCells.push(
+                return Array.from({ length: layout.plotsAcross }).map((_, colIndex) => {
+                  const item = displayRow[colIndex];
+
+                  return (
                     <div
-                      key={`${rep.replicationNo}-${rowIndex}-${col}`}
-                      className={`wf-plot-cell ${item ? "" : "wf-plot-cell-empty"}`}
+                      key={`${rep.replicationNo}-${rowIndex}-${colIndex}`}
+                      className={`wf-plot-cell ${
+                        item ? "" : "wf-plot-cell-empty"
+                      }`}
                     >
                       {item ? (
                         <>
-                          <div className="wf-plot-number">{item.entry_no}</div>
-                          <div className="wf-plot-name">{item.variety_name}</div>
+                          <div className="wf-plot-number">
+                            P{item.plot_no || item.entry_no}
+                          </div>
+                          <div className="wf-plot-name">
+                            {item.variety_name}
+                          </div>
                         </>
                       ) : null}
                     </div>
                   );
-                }
-
-                return rowCells;
+                });
               })}
             </div>
           </div>
         ))}
+
+        {roadsideLabelPosition === "right" && (
+          <div className="wf-roadside-label vertical">ENTRYWAY {entryway}</div>
+        )}
       </div>
+
+      {roadsideLabelPosition === "bottom" && (
+        <div className="wf-roadside-label">ENTRYWAY {entryway}</div>
+      )}
     </div>
   );
 }
