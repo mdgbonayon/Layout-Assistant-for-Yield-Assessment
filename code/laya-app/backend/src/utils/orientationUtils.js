@@ -6,7 +6,7 @@ function normalizeEntryway(entryway) {
   if (value.includes("SOUTH")) return "SOUTH";
   if (value.includes("NORTH")) return "NORTH";
 
-  return "NORTH";
+  return "SOUTH";
 }
 
 function getOrderedNumbers(count, shouldReverse = false) {
@@ -14,93 +14,116 @@ function getOrderedNumbers(count, shouldReverse = false) {
   return shouldReverse ? numbers.reverse() : numbers;
 }
 
-function getRepOrder(replications, repDirection, entryway) {
-  const side = normalizeEntryway(entryway);
-
-  if (repDirection === "horizontal") {
-    return getOrderedNumbers(replications, side === "EAST");
-  }
-
-  if (repDirection === "vertical") {
-    return getOrderedNumbers(replications, side === "SOUTH");
-  }
-
-  return getOrderedNumbers(replications);
-}
-
 function getTrialOrder(numberOfTrials, trialDirection, entryway) {
   const side = normalizeEntryway(entryway);
 
-  if (trialDirection === "horizontal") {
-    return getOrderedNumbers(numberOfTrials, side === "EAST");
+  if (side === "EAST" || side === "SOUTH") {
+    return getOrderedNumbers(numberOfTrials, true);
   }
 
-  if (trialDirection === "vertical") {
-    return getOrderedNumbers(numberOfTrials, side === "SOUTH");
-  }
-
-  return getOrderedNumbers(numberOfTrials);
+  return getOrderedNumbers(numberOfTrials, false);
 }
 
-function getCellPath({ rows, cols, entryway, repDirection }) {
+function getRepOrder(replications, repDirection, entryway) {
+  const side = normalizeEntryway(entryway);
+
+  if (side === "EAST" || side === "NORTH") {
+    return getOrderedNumbers(replications, true);
+  }
+
+  return getOrderedNumbers(replications, false);
+}
+
+function getOrientationForEntryway(entryway) {
+  const side = normalizeEntryway(entryway);
+
+  if (side === "WEST" || side === "EAST") {
+    return {
+      repDirection: "vertical",
+      trialDirection: "horizontal",
+    };
+  }
+
+  return {
+    repDirection: "horizontal",
+    trialDirection: "vertical",
+  };
+}
+
+function getCellPath({ rows, cols, entryway }) {
   const side = normalizeEntryway(entryway);
   const path = [];
 
-  const verticalSnakeFromTop = (startCol, endCol, stepCol) => {
+  // SOUTH: start bottom-left, go upward, then snake by column
+  if (side === "SOUTH") {
+    for (let c = 1; c <= cols; c++) {
+      const colIndex = c - 1;
+
+      if (colIndex % 2 === 0) {
+        for (let r = rows; r >= 1; r--) {
+          path.push({ row: r, col: c });
+        }
+      } else {
+        for (let r = 1; r <= rows; r++) {
+          path.push({ row: r, col: c });
+        }
+      }
+    }
+  }
+
+  // NORTH: start top-right, go downward, then snake by column
+  if (side === "NORTH") {
     let colIndex = 0;
 
-    for (let c = startCol; stepCol > 0 ? c <= endCol : c >= endCol; c += stepCol) {
+    for (let c = cols; c >= 1; c--) {
       if (colIndex % 2 === 0) {
-        for (let r = 1; r <= rows; r++) path.push({ row: r, col: c });
+        for (let r = 1; r <= rows; r++) {
+          path.push({ row: r, col: c });
+        }
       } else {
-        for (let r = rows; r >= 1; r--) path.push({ row: r, col: c });
+        for (let r = rows; r >= 1; r--) {
+          path.push({ row: r, col: c });
+        }
       }
+
       colIndex++;
     }
-  };
+  }
 
-  const verticalSnakeFromBottom = (startCol, endCol, stepCol) => {
-    let colIndex = 0;
-
-    for (let c = startCol; stepCol > 0 ? c <= endCol : c >= endCol; c += stepCol) {
-      if (colIndex % 2 === 0) {
-        for (let r = rows; r >= 1; r--) path.push({ row: r, col: c });
-      } else {
-        for (let r = 1; r <= rows; r++) path.push({ row: r, col: c });
-      }
-      colIndex++;
-    }
-  };
-
-  const horizontalSnakeFromTop = () => {
+  // WEST: start top-left, move left-to-right, snake by row
+  if (side === "WEST") {
     for (let r = 1; r <= rows; r++) {
-      if ((r - 1) % 2 === 0) {
-        for (let c = 1; c <= cols; c++) path.push({ row: r, col: c });
+      const rowIndex = r - 1;
+
+      if (rowIndex % 2 === 0) {
+        for (let c = 1; c <= cols; c++) {
+          path.push({ row: r, col: c });
+        }
       } else {
-        for (let c = cols; c >= 1; c--) path.push({ row: r, col: c });
+        for (let c = cols; c >= 1; c--) {
+          path.push({ row: r, col: c });
+        }
       }
     }
-  };
+  }
 
-  const horizontalSnakeFromBottom = () => {
+  // EAST: start bottom-right, move right-to-left, snake by row
+  if (side === "EAST") {
     let rowIndex = 0;
 
     for (let r = rows; r >= 1; r--) {
       if (rowIndex % 2 === 0) {
-        for (let c = 1; c <= cols; c++) path.push({ row: r, col: c });
+        for (let c = cols; c >= 1; c--) {
+          path.push({ row: r, col: c });
+        }
       } else {
-        for (let c = cols; c >= 1; c--) path.push({ row: r, col: c });
+        for (let c = 1; c <= cols; c++) {
+          path.push({ row: r, col: c });
+        }
       }
+
       rowIndex++;
     }
-  };
-
-  if (repDirection === "horizontal") {
-    if (side === "EAST") verticalSnakeFromTop(cols, 1, -1);
-    else verticalSnakeFromBottom(1, cols, 1);
-  } else {
-    if (side === "SOUTH") horizontalSnakeFromBottom();
-    else horizontalSnakeFromTop();
   }
 
   return path;
@@ -108,27 +131,24 @@ function getCellPath({ rows, cols, entryway, repDirection }) {
 
 function getContinuousPlotNumberMap({
   replications,
-  repDirection,
   entryway,
   plotsAcross,
   plotRowsDown,
+  plotsPerReplication,
+  startPlotNo = 1,
 }) {
-  // IMPORTANT:
-  // Plot numbering follows planting sequence by replication number,
-  // not visual display order.
-  const plantingRepOrder = getOrderedNumbers(replications);
+  const repOrder = getOrderedNumbers(replications);
 
   const cellPath = getCellPath({
     rows: Number(plotRowsDown),
     cols: Number(plotsAcross),
     entryway,
-    repDirection,
-  });
+  }).slice(0, Number(plotsPerReplication));
 
   const map = new Map();
-  let plotNo = 1;
+  let plotNo = Number(startPlotNo);
 
-  for (const repNo of plantingRepOrder) {
+  for (const repNo of repOrder) {
     for (const cell of cellPath) {
       map.set(`${repNo}-${cell.row}-${cell.col}`, plotNo);
       plotNo++;
@@ -140,8 +160,10 @@ function getContinuousPlotNumberMap({
 
 module.exports = {
   normalizeEntryway,
-  getRepOrder,
+  getOrderedNumbers,
   getTrialOrder,
+  getRepOrder,
+  getOrientationForEntryway,
   getCellPath,
   getContinuousPlotNumberMap,
 };

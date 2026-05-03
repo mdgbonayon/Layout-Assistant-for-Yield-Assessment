@@ -1,3 +1,5 @@
+const { getOrientationForEntryway } = require("./orientationUtils");
+
 function shuffleArray(array) {
   const copy = [...array];
 
@@ -205,14 +207,17 @@ function findBestExperimentLayout({
   fieldWidth,
   fieldHeight,
   trialGap,
+  entryway,
 }) {
   const gridCandidates = getGridCandidates(plotsPerReplication);
 
+  const forcedOrientation = getOrientationForEntryway(entryway);
+
   const orientationCandidates = [
-    { repDirection: "vertical", trialDirection: "horizontal" },
-    { repDirection: "vertical", trialDirection: "vertical" },
-    { repDirection: "horizontal", trialDirection: "horizontal" },
-    { repDirection: "horizontal", trialDirection: "vertical" },
+    {
+      repDirection: forcedOrientation.repDirection,
+      trialDirection: forcedOrientation.trialDirection,
+    },
   ];
 
   let bestOption = null;
@@ -359,6 +364,7 @@ function buildBackendTrialLayout({
   fieldWidth = 999999,
   fieldLength = 999999,
   trialGap = null,
+  entryway = null,
 }) {
   const { plotWidth, plotHeight } = getPlotDimensions({
     rowsPerPlot,
@@ -380,6 +386,7 @@ function buildBackendTrialLayout({
     fieldWidth: Number(fieldWidth),
     fieldHeight: Number(fieldLength),
     trialGap: resolvedTrialGap,
+    entryway,
   });
 
   const best = bestLayoutResult.best;

@@ -411,6 +411,7 @@ async function generateLayout(req, res) {
         fieldWidth: usableFieldWidth,
         fieldLength: usableFieldLength,
         trialGap: experiment.alleyway_spacing,
+        entryway,
       });
 
       const entrywaySide = getOperationalEntrywaySide(
@@ -503,12 +504,21 @@ async function generateLayout(req, res) {
       const layout = layoutResult.rows[0];
       const savedAssignments = [];
 
+      const plotsPerReplication = varieties.length;
+      const plotsPerTrial =
+        Number(experiment.replications_per_trial) * Number(plotsPerReplication);
+
+        const trialPositionInNumbering = Number(trial.trial_number) - 1;
+
+        const startPlotNo = trialPositionInNumbering * plotsPerTrial + 1;
+
       const plotNumberMap = getContinuousPlotNumberMap({
         replications: experiment.replications_per_trial,
-        repDirection: builtLayout.repDirection,
         entryway,
         plotsAcross: builtLayout.plotsAcross,
         plotRowsDown: builtLayout.plotRowsDown,
+        plotsPerReplication,
+        startPlotNo,
       });
 
       
