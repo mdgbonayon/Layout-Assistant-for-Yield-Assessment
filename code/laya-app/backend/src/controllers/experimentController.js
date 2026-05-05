@@ -5,7 +5,8 @@ const {
   getContinuousPlotNumberMap,
   getRepOrder,
   getTrialOrder,
-} = require("../utils/orientationUtils");
+  getCellPath,
+} = require("../utils/orientationUtils"); 
 
 function getOperationalEntrywaySide(entryway) {
   if (!entryway) return null;
@@ -521,17 +522,40 @@ async function generateLayout(req, res) {
         startPlotNo,
       });
 
-      
+            
+      const cellPath = getCellPath({
+        rows: builtLayout.plotRowsDown,
+        cols: builtLayout.plotsAcross,
+        entryway,
+      }).slice(0, plotsPerReplication);
+
       for (const replication of builtLayout.replications) {
         for (let i = 0; i < replication.assignments.length; i++) {
           const assignment = replication.assignments[i];
-          const localPlotRow = Math.floor(i / builtLayout.plotsAcross) + 1;
-          const plotCol = (i % builtLayout.plotsAcross) + 1;
+          const cell = cellPath[i];
+
+          if (!assignment || !assignment.id) {
+            continue;
+          }
+
+          if (!cell) {
+            throw new Error(
+              `Missing layout cell for rep ${replication.replicationNo}, assignment index ${i}`
+            );
+          }
+
+          const plotRow = cell.row;
+          const plotCol = cell.col;
+
           const plotNo = plotNumberMap.get(
-            `${replication.replicationNo}-${localPlotRow}-${plotCol}`
+            `${replication.replicationNo}-${plotRow}-${plotCol}`
           );
 
-          const plotRow = localPlotRow;
+          if (!plotNo) {
+            throw new Error(
+              `Missing plot_no for rep ${replication.replicationNo}, row ${plotRow}, col ${plotCol}`
+            );
+          }
 
           await client.query(
             `INSERT INTO plot_assignments
@@ -559,7 +583,7 @@ async function generateLayout(req, res) {
           });
         }
       }
-
+      
       allLayouts.push({
         layout,
         assignments: savedAssignments,
